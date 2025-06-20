@@ -1,33 +1,39 @@
-# WLTurbo - High-Performance Wayland Client for Go
+# WLTurbo - Wayland Client Library for Go
 
-🚀 **Ultra-fast, zero-allocation Wayland client library optimized for gaming and real-time applications**
+A performance-focused Wayland client library that provides the foundational protocol implementation for building Wayland applications and libraries.
+
+## Overview
+
+WLTurbo is a low-level Wayland client library that handles core protocol communication. It serves as the base layer for higher-level libraries like [libwldevices-go](https://github.com/bnema/libwldevices-go) which implement specific Wayland protocol extensions.
+
+## Architecture
+
+WLTurbo provides the foundational Wayland client infrastructure:
+
+- **Core Protocol Objects**: Display, Registry, Compositor, Surface, Seat, Region
+- **Event Dispatching**: Efficient routing of Wayland events to handlers
+- **Connection Management**: Unix socket communication with the compositor
+- **Memory Management**: Shared memory support via file descriptor passing
+
+Higher-level protocol implementations (virtual input devices, output management, etc.) are intentionally left to specialized libraries that build on top of WLTurbo.
 
 ## Features
 
-- **🎯 Sub-microsecond latency** - < 500ns input event processing
-- **⚡ Zero-allocation hot paths** - No GC pressure during event handling
-- **🎮 Gaming optimized** - 360-500+ FPS support, 8000Hz device compatibility
-- **🔒 Lock-free architecture** - MPSC queues and atomic operations
-- **🏎️ SIMD optimizations** - Vectorized batch operations
-- **📊 Cache-friendly** - 64-byte aligned data structures
-- **🔧 Go 1.24 ready** - Leverages latest performance features
+### Performance Optimizations
 
-## Performance Targets
+- **Zero-allocation event handling**: For messages under 4KB
+- **Lock-free dispatcher**: For object IDs < 1024 using atomic operations  
+- **Pre-allocated buffers**: Reusable buffers to minimize allocations
+- **Direct array indexing**: Fast opcode lookup for common cases
+- **Buffer pooling**: sync.Pool for temporary allocations
+- **File descriptor passing**: Efficient shared memory via SCM_RIGHTS
 
-| Metric | Target | Description |
-|--------|--------|-------------|
-| **Input Latency** | < 125μs | Input-to-dispatch (8000Hz polling rate) |
-| **Event Dispatch** | < 50ns | Per-event processing time |
-| **Allocations** | 0 | Zero allocations in steady state |
-| **GC Pause** | < 10μs | Maximum garbage collection pause |
-| **Throughput** | 16,000+ | Events per second capacity |
+### Design Goals
 
-## Gaming Hardware Support
-
-- **8000Hz Mice**: Razer Viper 8K, Corsair Sabre RGB Pro
-- **8000Hz Keyboards**: Wooting 80HE with true analog scanning
-- **High-refresh displays**: ASUS ROG Swift 500Hz, BenQ Zowie XL2566K
-- **VRR/G-Sync**: Variable refresh rate awareness
+- Minimal allocations in hot paths
+- Efficient event dispatching
+- Clean API for protocol extensions
+- Foundation for high-performance Wayland applications
 
 ## Quick Start
 
@@ -35,18 +41,18 @@
 package main
 
 import (
-    "github.com/bnema/wlturbo"
+    "github.com/bnema/wlturbo/wl"
 )
 
 func main() {
     // Connect to Wayland display
-    display, err := wlturbo.Connect("")
+    display, err := wl.Connect("")
     if err != nil {
         panic(err)
     }
     defer display.Close()
 
-    // Ultra-low latency event loop
+    // Basic event loop
     for {
         if err := display.Dispatch(); err != nil {
             break
@@ -55,33 +61,32 @@ func main() {
 }
 ```
 
-## Architecture
+For device control and input injection, use [libwldevices-go](https://github.com/bnema/libwldevices-go) which builds on top of WLTurbo.
 
-WLTurbo is built with gaming performance in mind:
+## Implementation Status
 
-- **Lock-free Event Queue**: MPSC ring buffer for zero-contention event handling
-- **Object Pool**: Pre-allocated event objects to eliminate malloc overhead
-- **Direct Dispatch**: Array-based handler lookup for objects < 1024
-- **Batch Processing**: Process multiple events per syscall
-- **Memory Pool**: Size-classed allocators for temporary buffers
+### Core Protocol ✅
+- Display, Registry, Compositor, Surface, Seat, Region
+- Event dispatching and handler registration
+- File descriptor passing for shared memory
+- Context-based proxy management
 
-## Benchmarks
+### Optimizations ✅
+- Zero-allocation event handling (messages < 4KB)
+- Lock-free dispatcher for common cases
+- Pre-allocated and pooled buffers
+- Efficient event routing
 
-```
-BenchmarkEventDispatch-16    20000000    50.2 ns/op    0 B/op    0 allocs/op
-BenchmarkMessageSend-16      40000000    25.1 ns/op    0 B/op    0 allocs/op
-BenchmarkFDPassing-16         5000000   200.0 ns/op    0 B/op    0 allocs/op
-```
+### Future Improvements
+- Performance benchmarks and validation
+- Additional optimizations based on profiling
+- Extended protocol object support as needed
 
 ## Requirements
 
-- **Go 1.24+** (for latest performance features)
-- **Linux** (Wayland compositor required)
-- **Modern CPU** (for SIMD optimizations)
-
-## Status
-
-🚧 **Active Development** - Core functionality complete, optimizations ongoing
+- **Go 1.21+**
+- **Linux** with Wayland compositor
+- **Unix sockets** support
 
 ## License
 
@@ -89,10 +94,8 @@ MIT License - see LICENSE file for details
 
 ## Contributing
 
-PRs welcome! Please read CONTRIBUTING.md for guidelines.
-
-Focus areas:
-- Performance optimizations
-- Gaming-specific features
-- Protocol extension support
-- Benchmark improvements
+Contributions welcome! Areas of focus:
+- Performance improvements
+- Additional protocol object support
+- Documentation and examples
+- Benchmark suite
