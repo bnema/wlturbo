@@ -29,6 +29,11 @@ type (
 	Output                      = wlturbo.Output
 	Region                      = wlturbo.Region
 	Compositor                  = wlturbo.Compositor
+
+	// Transport failures. Without these, a caller that imports this shim has to
+	// import the root package as well just to classify an error.
+	DisplayError  = wlturbo.DisplayError
+	ProtocolError = wlturbo.ProtocolError
 )
 
 // Function aliases
@@ -42,6 +47,15 @@ var (
 	CreateAnonymousFile = wlturbo.CreateAnonymousFile
 	MapMemory           = wlturbo.MapMemory
 	UnmapMemory         = wlturbo.UnmapMemory
+)
+
+// Sentinels for the transport's error classes, so errors.Is works through the
+// shim as it does through the root package.
+var (
+	ErrMalformedFrame = wlturbo.ErrMalformedFrame
+	ErrUnknownObject  = wlturbo.ErrUnknownObject
+	ErrUnknownOpcode  = wlturbo.ErrUnknownOpcode
+	ErrDisplayError   = wlturbo.ErrDisplayError
 )
 
 // Seat capability constants
