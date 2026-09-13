@@ -5,31 +5,30 @@ import (
 	"github.com/bnema/wlturbo"
 )
 
-
 // Type aliases for compatibility
 type (
-	Display                    = wlturbo.Display
-	Registry                   = wlturbo.Registry
-	Context                    = wlturbo.Context
-	Fixed                      = wlturbo.Fixed
-	Object                     = wlturbo.Object
-	Proxy                      = wlturbo.Proxy
-	BaseProxy                  = wlturbo.BaseProxy
-	Event                      = wlturbo.Event
-	Global                     = wlturbo.Global
-	GlobalHandler              = wlturbo.GlobalHandler
-	RegistryGlobalHandler      = wlturbo.RegistryGlobalHandler
+	Display                     = wlturbo.Display
+	Registry                    = wlturbo.Registry
+	Context                     = wlturbo.Context
+	Fixed                       = wlturbo.Fixed
+	Object                      = wlturbo.Object
+	Proxy                       = wlturbo.Proxy
+	BaseProxy                   = wlturbo.BaseProxy
+	Event                       = wlturbo.Event
+	Global                      = wlturbo.Global
+	GlobalHandler               = wlturbo.GlobalHandler
+	RegistryGlobalHandler       = wlturbo.RegistryGlobalHandler
 	RegistryGlobalRemoveHandler = wlturbo.RegistryGlobalRemoveHandler
-	RegistryGlobalEvent        = wlturbo.RegistryGlobalEvent
-	RegistryGlobalRemoveEvent  = wlturbo.RegistryGlobalRemoveEvent
-	Seat                       = wlturbo.Seat
-	Surface                    = wlturbo.Surface
-	Pointer                    = wlturbo.Pointer
-	Keyboard                   = wlturbo.Keyboard
-	Touch                      = wlturbo.Touch
-	Output                     = wlturbo.Output
-	Region                     = wlturbo.Region
-	Compositor                 = wlturbo.Compositor
+	RegistryGlobalEvent         = wlturbo.RegistryGlobalEvent
+	RegistryGlobalRemoveEvent   = wlturbo.RegistryGlobalRemoveEvent
+	Seat                        = wlturbo.Seat
+	Surface                     = wlturbo.Surface
+	Pointer                     = wlturbo.Pointer
+	Keyboard                    = wlturbo.Keyboard
+	Touch                       = wlturbo.Touch
+	Output                      = wlturbo.Output
+	Region                      = wlturbo.Region
+	Compositor                  = wlturbo.Compositor
 )
 
 // Function aliases

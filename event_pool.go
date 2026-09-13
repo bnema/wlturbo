@@ -24,10 +24,10 @@ type EventHandler func(event *Event)
 type EventDispatcher struct {
 	// Lock-free handler lookup using atomic operations
 	handlers [1024]atomic.Pointer[handlerEntry] // Fixed-size array for object IDs 0-1023
-	
+
 	// Extended handlers for object IDs >= 1024 (rare case)
 	extHandlers sync.Map
-	
+
 	// Pre-allocated event objects to avoid allocations
 	eventCache [64]Event
 	eventIndex atomic.Uint32
@@ -37,7 +37,7 @@ type EventDispatcher struct {
 type handlerEntry struct {
 	// Array of handlers indexed by opcode (most objects have < 16 opcodes)
 	handlers [32]EventHandler
-	
+
 	// Extended handlers for opcodes >= 32 (very rare)
 	extHandlers *sync.Map
 }
@@ -62,7 +62,7 @@ func (d *EventDispatcher) RegisterHandler(objectID uint32, opcode uint16, handle
 					newEntry.extHandlers = &sync.Map{}
 					newEntry.extHandlers.Store(opcode, handler)
 				}
-				
+
 				// Try to set atomically
 				if d.handlers[objectID].CompareAndSwap(nil, newEntry) {
 					return
@@ -70,7 +70,7 @@ func (d *EventDispatcher) RegisterHandler(objectID uint32, opcode uint16, handle
 				// Retry if someone else created it
 				continue
 			}
-			
+
 			// Entry exists, update it
 			if opcode < 32 {
 				// Direct array access (no locking needed for write)
@@ -88,7 +88,7 @@ func (d *EventDispatcher) RegisterHandler(objectID uint32, opcode uint16, handle
 		// Slow path: use sync.Map for large object IDs
 		entry, _ := d.extHandlers.LoadOrStore(objectID, &handlerEntry{})
 		h := entry.(*handlerEntry)
-		
+
 		if opcode < 32 {
 			h.handlers[opcode] = handler
 		} else {
@@ -105,7 +105,7 @@ func (d *EventDispatcher) RegisterHandler(objectID uint32, opcode uint16, handle
 //go:inline
 func (d *EventDispatcher) Dispatch(objectID uint32, opcode uint16, data []byte) {
 	var handler EventHandler
-	
+
 	// Fast lookup path
 	if objectID < 1024 {
 		entry := d.handlers[objectID].Load()
@@ -131,21 +131,21 @@ func (d *EventDispatcher) Dispatch(objectID uint32, opcode uint16, data []byte) 
 			}
 		}
 	}
-	
+
 	if handler == nil {
 		return
 	}
-	
+
 	// Get event from pool
 	event := eventPool.Get().(*Event)
 	event.ProxyID = objectID
 	event.Opcode = opcode
 	event.data = append(event.data[:0], data...) // Reuse backing array
 	event.offset = 0
-	
+
 	// Call handler
 	handler(event)
-	
+
 	// Return to pool
 	eventPool.Put(event)
 }
@@ -169,11 +169,11 @@ type RawEvent struct {
 // DirectDispatcher provides the absolute fastest dispatch path for hot events
 type DirectDispatcher struct {
 	// Direct function pointers for the hottest paths (e.g., pointer motion)
-	pointerMotion   func(surfaceX, surfaceY Fixed)
-	pointerButton   func(button, state uint32)
-	keyboardKey     func(key, state uint32)
-	frameCallback   func(callbackData uint32)
-	
+	pointerMotion func(surfaceX, surfaceY Fixed)
+	pointerButton func(button, state uint32)
+	keyboardKey   func(key, state uint32)
+	frameCallback func(callbackData uint32)
+
 	// Fallback to regular dispatcher
 	fallback *EventDispatcher
 }
