@@ -4,92 +4,33 @@
 package wlturbo
 
 import (
+	"errors"
 	"fmt"
 	"golang.org/x/sys/unix"
-	"net"
 	"sync"
-	"sync/atomic"
 	"syscall"
 )
 
-// fdQueue is a lock-free multi-producer single-consumer queue for file descriptors
-type fdQueue struct {
-	items [256]atomic.Pointer[fdItem]
-	head  atomic.Uint64
-	tail  atomic.Uint64
+// maxRecvFDs bounds how many ancillary file descriptors a single read accepts.
+// A socket read that carries more than this is reported as a protocol failure
+// instead of silently dropping descriptors.
+const maxRecvFDs = 64
+
+// controlBufferPool provides control-message buffers sized for maxRecvFDs.
+var controlBufferPool = sync.Pool{
+	New: func() interface{} {
+		return make([]byte, unix.CmsgSpace(maxRecvFDs*4))
+	},
 }
 
-type fdItem struct {
-	fd   int
-	next atomic.Pointer[fdItem]
-}
-
-var (
-	// Global FD queue for zero-allocation FD passing
-	globalFDQueue = &fdQueue{}
-
-	// Pre-allocated FD items pool
-	fdItemPool = sync.Pool{
-		New: func() interface{} {
-			return &fdItem{}
-		},
-	}
-
-	// Pre-allocated buffers for control messages
-	controlBufferPool = sync.Pool{
-		New: func() interface{} {
-			return make([]byte, unix.CmsgSpace(4*4)) // Space for 4 FDs
-		},
-	}
-)
-
-// enqueueFD adds a file descriptor to the lock-free queue
-func (q *fdQueue) enqueueFD(fd int) {
-	item := fdItemPool.Get().(*fdItem)
-	item.fd = fd
-	item.next.Store(nil)
-
-	for {
-		tail := q.tail.Load()
-		next := tail & 255
-
-		if q.items[next].CompareAndSwap(nil, item) {
-			q.tail.Add(1)
-			return
-		}
-		// Retry if CAS failed
-	}
-}
-
-// dequeueFD removes and returns a file descriptor from the queue
-func (q *fdQueue) dequeueFD() (int, bool) {
-	for {
-		head := q.head.Load()
-		tail := q.tail.Load()
-
-		if head >= tail {
-			return -1, false
-		}
-
-		next := head & 255
-		item := q.items[next].Load()
-
-		if item == nil {
-			continue
-		}
-
-		if q.head.CompareAndSwap(head, head+1) {
-			fd := item.fd
-			q.items[next].Store(nil)
-			fdItemPool.Put(item)
-			return fd, true
-		}
-	}
-}
-
-// readChunk reads one chunk of bytes from the display connection, collecting
-// any ancillary file descriptors that arrive with it. A single read never
-// defines a message boundary; callers frame the returned bytes themselves.
+// readChunk reads one chunk of bytes from the display connection and queues any
+// ancillary file descriptors that arrive with it. A single read never defines a
+// message boundary; callers frame the returned bytes themselves.
+//
+// Descriptors are owned by the connection and consumed in arrival order by
+// Event.Fd, which is what the Wayland wire protocol requires: an fd belongs to
+// the argument position in the byte stream, not to whichever message happens to
+// end first.
 func (d *Display) readChunk() (int, error) {
 	if d.unix == nil {
 		n, err := d.conn.Read(d.recvBuf)
@@ -102,61 +43,102 @@ func (d *Display) readChunk() (int, error) {
 	oob := controlBufferPool.Get().([]byte)
 	defer controlBufferPool.Put(oob)
 
-	n, oobn, _, _, err := d.unix.ReadMsgUnix(d.recvBuf, oob)
+	n, oobn, flags, _, err := d.unix.ReadMsgUnix(d.recvBuf, oob)
 	if n < 0 {
 		n = 0
 	}
+
 	if oobn > 0 {
-		if perr := globalFDQueue.parseControl(oob[:oobn]); perr != nil {
-			return n, perr
+		fds, perr := parseFDs(oob[:oobn])
+		d.queueFDs(fds)
+		if perr != nil && err == nil {
+			err = perr
 		}
+	}
+
+	if flags&unix.MSG_CTRUNC != 0 && err == nil {
+		// Descriptors were dropped by the kernel, so the connection can no
+		// longer be demarshalled correctly: treat it as a protocol failure so
+		// the caller closes the descriptors that did arrive.
+		err = &ProtocolError{Kind: "control_truncated", Err: ErrMalformedFrame}
 	}
 	return n, err
 }
 
-// parseControl queues the file descriptors carried by socket control messages.
-func (q *fdQueue) parseControl(oob []byte) error {
+// parseFDs extracts the file descriptors carried by socket control messages.
+// Descriptors parsed before an error are returned so the caller can close them.
+func parseFDs(oob []byte) ([]int, error) {
 	scms, err := syscall.ParseSocketControlMessage(oob)
 	if err != nil {
-		return fmt.Errorf("parse control message: %w", err)
+		return nil, fmt.Errorf("parse control message: %w", err)
 	}
-	for _, scm := range scms {
+
+	var fds []int
+	for i := range scms {
+		scm := &scms[i]
 		if scm.Header.Type != syscall.SCM_RIGHTS {
 			continue
 		}
-		parsedFDs, err := syscall.ParseUnixRights(&scm)
+		parsed, err := syscall.ParseUnixRights(scm)
 		if err != nil {
-			return fmt.Errorf("parse unix rights: %w", err)
+			return fds, fmt.Errorf("parse unix rights: %w", err)
 		}
-		for _, fd := range parsedFDs {
-			q.enqueueFD(fd)
-		}
+		fds = append(fds, parsed...)
 	}
-	return nil
+	return fds, nil
 }
 
-// sendmsgWithFDs sends a message potentially containing file descriptors
+// queueFDs appends descriptors to this connection's pending list.
+func (d *Display) queueFDs(fds []int) {
+	if len(fds) == 0 {
+		return
+	}
+	d.fdMu.Lock()
+	d.pendingFDs = append(d.pendingFDs, fds...)
+	d.fdMu.Unlock()
+}
+
+// nextFD removes and returns the oldest pending descriptor.
+func (d *Display) nextFD() (int, bool) {
+	d.fdMu.Lock()
+	defer d.fdMu.Unlock()
+	if len(d.pendingFDs) == 0 {
+		return -1, false
+	}
+	fd := d.pendingFDs[0]
+	d.pendingFDs = d.pendingFDs[1:]
+	return fd, true
+}
+
+// closePendingFDs closes every descriptor this connection still holds.
+func (d *Display) closePendingFDs() {
+	d.fdMu.Lock()
+	fds := d.pendingFDs
+	d.pendingFDs = nil
+	d.fdMu.Unlock()
+
+	for _, fd := range fds {
+		if fd >= 0 {
+			_ = unix.Close(fd)
+		}
+	}
+}
+
+// sendmsgWithFDs sends a message, attaching file descriptors when present.
 func (d *Display) sendmsgWithFDs(buf []byte, fds []int) error {
 	d.sendMu.Lock()
 	defer d.sendMu.Unlock()
 
 	if len(fds) == 0 {
-		// Fast path: no FDs to send
 		_, err := d.conn.Write(buf)
 		return err
 	}
+	if d.unix == nil {
+		return errors.New("wlturbo: cannot send file descriptors over a non-Unix connection")
+	}
 
-	// Create control message with file descriptors
-	oob := syscall.UnixRights(fds...)
-
-	// Send message with control data
-	_, _, err := d.conn.(*net.UnixConn).WriteMsgUnix(buf, oob, nil)
+	_, _, err := d.unix.WriteMsgUnix(buf, unix.UnixRights(fds...), nil)
 	return err
-}
-
-// GetNextFD retrieves the next file descriptor from the queue
-func GetNextFD() (int, bool) {
-	return globalFDQueue.dequeueFD()
 }
 
 // Memory mapping helpers for shared memory buffers

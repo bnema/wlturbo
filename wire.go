@@ -88,13 +88,12 @@ func (e *DisplayError) Error() string {
 func (e *DisplayError) Unwrap() error { return ErrDisplayError }
 
 // receivedFrame is one complete Wayland message read from the connection.
-// fds holds the ancillary descriptors that arrived while the frame's bytes
-// were read, in arrival order.
+// Ancillary file descriptors are not part of the frame: they are owned by the
+// connection and consumed in arrival order by Event.Fd.
 type receivedFrame struct {
 	object uint32
 	opcode uint16
 	body   []byte
-	fds    []int
 }
 
 // parseHeader decodes and validates an 8-byte Wayland message header.

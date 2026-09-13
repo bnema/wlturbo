@@ -221,14 +221,17 @@ func (e *Event) Array() []byte {
 	return arr
 }
 
-// Fd reads a file descriptor from the event
+// Fd reads a file descriptor that was delivered out-of-band for this event.
+// Descriptors are queued on the connection in arrival order, as the Wayland
+// wire protocol requires. The returned descriptor is owned by the caller,
+// which must close it. It returns 0 when the event carried no descriptor.
 func (e *Event) Fd() uintptr {
-	// File descriptors are passed out-of-band via SCM_RIGHTS
-	// We read them from our lock-free queue
-	if fd, ok := GetNextFD(); ok {
-		return uintptr(fd)
+	if e.display != nil {
+		if fd, ok := e.display.nextFD(); ok {
+			return uintptr(fd)
+		}
 	}
-	// Fallback: read placeholder value from message
+	// No descriptor was delivered: consume the placeholder argument.
 	_ = e.Uint32()
 	return 0
 }

@@ -66,12 +66,15 @@ type Display struct {
 
 	// Connection-local receive state. rbuf holds bytes read from the socket
 	// that do not yet form a complete frame; recvBuf is the scratch buffer
-	// used for a single read.
-	rbuf      []byte
-	recvBuf   []byte
-	readErr   error
-	maxMsgLen uint32
-	closed    atomic.Bool
+	// used for a single read. pendingFDs holds ancillary descriptors that
+	// arrived with those bytes and have not been consumed yet.
+	rbuf       []byte
+	recvBuf    []byte
+	readErr    error
+	maxMsgLen  uint32
+	closed     atomic.Bool
+	fdMu       sync.Mutex
+	pendingFDs []int
 }
 
 // newDisplay builds a Display over an established connection.
@@ -176,6 +179,7 @@ func (d *Display) Close() error {
 	if !d.closed.CompareAndSwap(false, true) {
 		return nil
 	}
+	d.closePendingFDs()
 	return d.conn.Close()
 }
 
@@ -326,9 +330,23 @@ func (d *Display) Dispatch() error {
 
 	frame, err := d.nextFrame()
 	if err != nil {
-		return err
+		return d.fail(err)
 	}
-	return d.dispatchFrame(frame)
+	return d.fail(d.dispatchFrame(frame))
+}
+
+// fail releases resources that cannot be used once the connection is
+// unusable. A protocol violation invalidates the whole connection, so queued
+// descriptors are closed; transport errors may be transient and keep them.
+func (d *Display) fail(err error) error {
+	if err == nil {
+		return nil
+	}
+	var perr *ProtocolError
+	if errors.As(err, &perr) {
+		d.closePendingFDs()
+	}
+	return err
 }
 
 // maxMessageSize reports the largest accepted message size.
@@ -388,7 +406,10 @@ func (d *Display) fill() error {
 			err = io.ErrUnexpectedEOF
 		}
 		d.readErr = err
-		if n == 0 {
+		// A control-message failure corrupts the descriptor stream, so it is
+		// reported immediately instead of after the buffered bytes are used.
+		var perr *ProtocolError
+		if n == 0 || errors.As(err, &perr) {
 			return err
 		}
 	}
