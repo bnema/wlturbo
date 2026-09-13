@@ -10,9 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
-
-	// "log"
 	"net"
 	"os"
 	"path/filepath"
@@ -48,8 +45,8 @@ type Object interface {
 // Display represents a connection to the Wayland display
 type Display struct {
 	conn      net.Conn
-	fd        int
-	objects   sync.Map // map[uint32]Object
+	unix      *net.UnixConn // set when conn is a Unix socket, nil otherwise
+	objects   sync.Map      // map[uint32]Object
 	nextID    uint32
 	sendMu    sync.Mutex
 	recvMu    sync.Mutex
@@ -67,11 +64,38 @@ type Display struct {
 	lastErrorCode uint32
 	lastErrorObj  uint32
 
-	// Reusable read buffer for header
-	headerBuf [8]byte
+	// Connection-local receive state. rbuf holds bytes read from the socket
+	// that do not yet form a complete frame; recvBuf is the scratch buffer
+	// used for a single read.
+	rbuf      []byte
+	recvBuf   []byte
+	readErr   error
+	maxMsgLen uint32
+	closed    atomic.Bool
+}
 
-	// Pre-allocated buffer for event bodies (avoid allocations)
-	eventBodyBuf [4096]byte
+// newDisplay builds a Display over an established connection.
+func newDisplay(conn net.Conn) *Display {
+	d := &Display{
+		conn:       conn,
+		nextID:     2, // 1 is reserved for wl_display
+		dispatcher: NewEventDispatcher(),
+	}
+	if uc, ok := conn.(*net.UnixConn); ok {
+		d.unix = uc
+	}
+	d.context = NewContext(d)
+	// Register display object (ID 1)
+	d.objects.Store(uint32(displayObjectID), d)
+	// Initialize registry
+	d.registry = &Registry{
+		id:       d.allocateID(),
+		display:  d,
+		globals:  make(map[uint32]Global),
+		handlers: make(map[string]GlobalHandler),
+	}
+	d.objects.Store(d.registry.id, d.registry)
+	return d
 }
 
 // Registry represents the global registry
@@ -95,39 +119,10 @@ func (c *callbackObject) ID() uint32 {
 
 // Dispatch handles callback events (opcode 0 = done)
 func (c *callbackObject) Dispatch(event *Event) {
-	if event.Opcode == 0 { // done event
-		log.Printf("wlclient: callbackObject.Dispatch fired for ID %d", c.id)
-		// Trigger any listeners for this callback
-		if listeners, ok := c.display.listeners.Load(c.id); ok {
-			if opcodeMap, ok := listeners.(*sync.Map); ok {
-				if handlers, ok := opcodeMap.Load(uint16(0)); ok {
-					if handlerSlice, ok := handlers.(*[]func([]byte)); ok {
-						if handlerSlice == nil {
-							log.Printf("wlclient: WARNING: handlerSlice is nil for callback ID %d", c.id)
-							return
-						}
-						log.Printf("wlclient: Found %d handlers for callback ID %d", len(*handlerSlice), c.id)
-						for i, handler := range *handlerSlice {
-							if handler == nil {
-								log.Printf("wlclient: WARNING: handler %d is nil for callback ID %d", i, c.id)
-								continue
-							}
-							log.Printf("wlclient: Calling handler %d for callback ID %d", i, c.id)
-							handler(event.data)
-						}
-					} else {
-						log.Printf("wlclient: WARNING: handlers not a slice for callback ID %d", c.id)
-					}
-				} else {
-					log.Printf("wlclient: WARNING: no handlers found for opcode 0 on callback ID %d", c.id)
-				}
-			} else {
-				log.Printf("wlclient: WARNING: listeners not a sync.Map for callback ID %d", c.id)
-			}
-		} else {
-			log.Printf("wlclient: WARNING: no listeners found for callback ID %d", c.id)
-		}
+	if event.Opcode != 0 { // done event
+		return
 	}
+	c.display.notifyListeners(c.id, 0, event.data)
 }
 
 // Global represents a global object
@@ -140,7 +135,7 @@ type Global struct {
 // GlobalHandler is called when a global is announced
 type GlobalHandler func(registry *Registry, name uint32, version uint32)
 
-// Connect connects to the Wayland display
+// Connect connects to the Wayland display and requests the registry.
 func Connect(socketPath string) (*Display, error) {
 	if socketPath == "" {
 		socketPath = os.Getenv("WAYLAND_DISPLAY")
@@ -158,60 +153,35 @@ func Connect(socketPath string) (*Display, error) {
 		socketPath = filepath.Join(runDir, socketPath)
 	}
 
-	// log.Printf("wlclient: Connecting to Wayland socket: %s", socketPath)
-	// Connect to socket
 	conn, err := net.Dial("unix", socketPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to Wayland: %w", err)
 	}
-	// log.Printf("wlclient: Connected to Wayland socket successfully")
 
-	// Get file descriptor for advanced operations
-	file, err := conn.(*net.UnixConn).File()
-	if err != nil {
-		_ = conn.Close()
-		return nil, fmt.Errorf("failed to get socket fd: %w", err)
-	}
-	fd := int(file.Fd())
-	_ = file.Close() // We only need the fd
-
-	d := &Display{
-		conn:       conn,
-		fd:         fd,
-		nextID:     2, // 1 is reserved for wl_display
-		dispatcher: NewEventDispatcher(),
-	}
-
-	// Create context once and store it
-	d.context = NewContext(d)
-
-	// Register display object (ID 1)
-	d.objects.Store(uint32(1), d)
-
-	// Initialize registry
-	d.registry = &Registry{
-		id:       d.allocateID(),
-		display:  d,
-		globals:  make(map[uint32]Global),
-		handlers: make(map[string]GlobalHandler),
-	}
-	d.objects.Store(d.registry.id, d.registry)
+	d := newDisplay(conn)
 
 	// Get registry
 	if err := d.getRegistry(); err != nil {
-		_ = conn.Close()
+		_ = d.Close()
 		return nil, fmt.Errorf("failed to get registry: %w", err)
 	}
 
 	// Don't do initial roundtrip here - let the caller do it after setting up handlers
-	// log.Printf("wlclient: display connected, registry ready")
-
 	return d, nil
 }
 
-// Close closes the display connection
+// Close closes the display connection. It is safe to call more than once;
+// later calls are no-ops. After Close, Dispatch returns net.ErrClosed.
 func (d *Display) Close() error {
+	if !d.closed.CompareAndSwap(false, true) {
+		return nil
+	}
 	return d.conn.Close()
+}
+
+// Closed reports whether the connection has been closed.
+func (d *Display) Closed() bool {
+	return d.closed.Load()
 }
 
 // ID returns the display's object ID (always 1)
@@ -226,9 +196,7 @@ func (d *Display) RegisterEventHandler(objectID uint32, opcode uint16, handler E
 
 // allocateID allocates a new object ID
 func (d *Display) allocateID() uint32 {
-	id := atomic.AddUint32(&d.nextID, 1) - 1
-	log.Printf("wlclient: allocateID() generated ID %d", id)
-	return id
+	return atomic.AddUint32(&d.nextID, 1) - 1
 }
 
 // AllocateID allocates a new object ID (public method)
@@ -341,113 +309,151 @@ func (d *Display) marshalArg(buf *bytes.Buffer, arg interface{}) error {
 	return nil
 }
 
-// Dispatch reads and dispatches events
+// Dispatch reads one complete Wayland message and delivers it to the object
+// that owns it.
+//
+// Read boundaries never define message boundaries: a header split across
+// several reads and several messages arriving in one read are both handled.
+// Dispatch returns net.ErrClosed after Close, a typed ProtocolError for a
+// malformed frame, and io.ErrUnexpectedEOF when the peer closes mid-frame.
 func (d *Display) Dispatch() error {
 	d.recvMu.Lock()
 	defer d.recvMu.Unlock()
 
-	// Read header with potential file descriptors
-	n, fds, err := d.recvmsgWithFDs(d.headerBuf[:])
+	if d.closed.Load() {
+		return net.ErrClosed
+	}
+
+	frame, err := d.nextFrame()
 	if err != nil {
-		return fmt.Errorf("failed to read header: %w", err)
+		return err
 	}
-	if n < 8 {
-		return fmt.Errorf("incomplete header: got %d bytes", n)
+	return d.dispatchFrame(frame)
+}
+
+// maxMessageSize reports the largest accepted message size.
+func (d *Display) maxMessageSize() uint32 {
+	if d.maxMsgLen == 0 {
+		return DefaultMaxMessageSize
 	}
+	return d.maxMsgLen
+}
 
-	objectID := binary.LittleEndian.Uint32(d.headerBuf[0:4])
-	sizeOpcode := binary.LittleEndian.Uint32(d.headerBuf[4:8])
-	// Upper 16 bits = size (includes header), lower 16 bits = opcode
-	size := sizeOpcode >> 16
-	opcode := sizeOpcode & 0xffff
-
-	// Only log suspicious events or important ones
-	// if objectID > 1000000 || objectID == 5 {
-	// 	log.Printf("wlclient: Dispatch received event: object=%d (0x%x), opcode=%d, size=%d", objectID, objectID, opcode, size)
-	// }
-	if opcode > 0xFFFF {
-		return fmt.Errorf("invalid opcode: %d", opcode)
-	}
-
-	// Read message body (size includes 8-byte header)
-	var body []byte
-	if size > 8 {
-		bodySize := size - 8
-
-		// Use pre-allocated buffer for small messages (zero allocation)
-		if bodySize <= uint32(len(d.eventBodyBuf)) {
-			body = d.eventBodyBuf[:bodySize]
-		} else {
-			// Large message, allocate new buffer
-			body = make([]byte, bodySize)
-		}
-
-		n, moreFds, err := d.recvmsgWithFDs(body)
-		if err != nil {
-			return fmt.Errorf("failed to read body: %w", err)
-		}
-		if n < int(bodySize) {
-			// Read remaining data if needed
-			remaining := body[n:]
-			if _, err := io.ReadFull(d.conn, remaining); err != nil {
-				return fmt.Errorf("failed to read remaining body: %w", err)
+// nextFrame returns the next complete frame, reading more bytes as needed.
+func (d *Display) nextFrame() (receivedFrame, error) {
+	for {
+		if len(d.rbuf) >= HeaderSize {
+			object, opcode, size, err := parseHeader(d.rbuf[:HeaderSize], d.maxMessageSize())
+			if err != nil {
+				return receivedFrame{}, err
 			}
-		}
-		fds = append(fds, moreFds...)
-	}
-
-	// Handle display events specially
-	if objectID == 1 {
-		return d.handleDisplayEvent(uint16(opcode), body)
-	}
-
-	// Try to find the object
-	if obj, ok := d.objects.Load(objectID); ok {
-		// Only log for non-registry objects to reduce spam
-		if objectID != 2 {
-			log.Printf("wlclient: Found object for ID %d, type: %T", objectID, obj)
-		}
-
-		// CRITICAL: Handle server object creation BEFORE dispatching
-		if d.handleServerObject(objectID, uint16(opcode), body) {
-			log.Printf("wlclient: Handled server object creation for ID %d, opcode %d", objectID, opcode)
-		}
-
-		// Check if it's a Proxy with Dispatch method
-		if proxy, ok := obj.(Proxy); ok && proxy != nil {
-			event := &Event{
-				ProxyID: objectID,
-				Opcode:  uint16(opcode),
-				data:    body,
-				offset:  0,
-			}
-			if objectID != 2 {
-				log.Printf("wlclient: Dispatching event to proxy ID %d, opcode %d", objectID, opcode)
-			}
-			proxy.Dispatch(event)
-			return nil // Event was handled
-		}
-	} else {
-		log.Printf("wlclient: WARNING: No object found for ID %d (0x%x)", objectID, objectID)
-	}
-
-	// Use high-performance dispatcher
-	d.dispatcher.Dispatch(objectID, uint16(opcode), body)
-
-	// Also check listeners (for compatibility)
-	if listeners, ok := d.listeners.Load(objectID); ok {
-		if opcodeMap, ok := listeners.(*sync.Map); ok {
-			if handlers, ok := opcodeMap.Load(uint16(opcode)); ok {
-				if handlerSlice, ok := handlers.(*[]func([]byte)); ok {
-					for _, handler := range *handlerSlice {
-						handler(body)
-					}
+			if uint32(len(d.rbuf)) >= size {
+				frame := receivedFrame{object: object, opcode: opcode}
+				if size > HeaderSize {
+					frame.body = make([]byte, size-HeaderSize)
+					copy(frame.body, d.rbuf[HeaderSize:size])
 				}
+				d.consume(size)
+				return frame, nil
 			}
+		}
+		if err := d.fill(); err != nil {
+			return receivedFrame{}, err
+		}
+	}
+}
+
+// consume removes the first n bytes from the receive buffer.
+func (d *Display) consume(n uint32) {
+	rest := copy(d.rbuf, d.rbuf[n:])
+	d.rbuf = d.rbuf[:rest]
+}
+
+// fill reads one chunk from the connection into the receive buffer. Bytes that
+// arrive together with an error are kept so they are still parsed before the
+// error surfaces.
+func (d *Display) fill() error {
+	if d.readErr != nil {
+		return d.readErr
+	}
+	if d.recvBuf == nil {
+		d.recvBuf = make([]byte, readChunkSize)
+	}
+	n, err := d.readChunk()
+	if n > 0 {
+		d.rbuf = append(d.rbuf, d.recvBuf[:n]...)
+	}
+	if err != nil {
+		if errors.Is(err, io.EOF) {
+			err = io.ErrUnexpectedEOF
+		}
+		d.readErr = err
+		if n == 0 {
+			return err
+		}
+	}
+	return nil
+}
+
+// dispatchFrame delivers one complete frame to the object that owns it.
+func (d *Display) dispatchFrame(f receivedFrame) error {
+	if f.object == displayObjectID {
+		return d.handleDisplayEvent(f.opcode, f.body)
+	}
+
+	obj, ok := d.objects.Load(f.object)
+	if !ok {
+		return &ProtocolError{
+			Kind:   "unknown_object",
+			Object: f.object,
+			Opcode: f.opcode,
+			Size:   uint32(len(f.body)) + HeaderSize,
+			Err:    ErrUnknownObject,
 		}
 	}
 
+	// Server-created objects are announced by an event on a known object.
+	d.handleServerObject(f.object, f.opcode, f.body)
+
+	if proxy, ok := obj.(Proxy); ok && proxy != nil {
+		proxy.Dispatch(&Event{
+			ProxyID: f.object,
+			Opcode:  f.opcode,
+			data:    f.body,
+			display: d,
+		})
+		return nil
+	}
+
+	// High-performance dispatcher, then compatibility listeners.
+	d.dispatcher.Dispatch(f.object, f.opcode, f.body)
+	d.notifyListeners(f.object, f.opcode, f.body)
 	return nil
+}
+
+// notifyListeners runs the listeners registered for an object and opcode.
+func (d *Display) notifyListeners(objectID uint32, opcode uint16, body []byte) {
+	listeners, ok := d.listeners.Load(objectID)
+	if !ok {
+		return
+	}
+	opcodeMap, ok := listeners.(*sync.Map)
+	if !ok {
+		return
+	}
+	handlers, ok := opcodeMap.Load(opcode)
+	if !ok {
+		return
+	}
+	handlerSlice, ok := handlers.(*[]func([]byte))
+	if !ok || handlerSlice == nil {
+		return
+	}
+	for _, handler := range *handlerSlice {
+		if handler != nil {
+			handler(body)
+		}
+	}
 }
 
 // handleDisplayEvent handles events on the display object
@@ -455,60 +461,46 @@ func (d *Display) handleDisplayEvent(opcode uint16, data []byte) error {
 	switch opcode {
 	case 0: // error
 		if len(data) < 8 {
-			return errors.New("invalid error event")
+			return &ProtocolError{Kind: "short_display_error", Object: displayObjectID, Opcode: opcode, Size: uint32(len(data)) + HeaderSize, Err: ErrMalformedFrame}
 		}
-		objectID := binary.LittleEndian.Uint32(data[0:4])
-		code := binary.LittleEndian.Uint32(data[4:8])
+		event := &Event{ProxyID: displayObjectID, Opcode: opcode, data: data, display: d}
+		objectID := event.Uint32()
+		code := event.Uint32()
+		message := event.String()
 
-		var message string
-		if len(data) > 8 {
-			// Message is optional, parse if present
-			if len(data) >= 12 {
-				msgLen := binary.LittleEndian.Uint32(data[8:12])
-				if msgLen > 0 && len(data) >= 12+int(msgLen) {
-					message = string(data[12 : 12+msgLen-1]) // -1 to remove null terminator
-				}
-			}
-		}
-
-		d.lastError = fmt.Errorf("protocol error: object %d, code %d: %s", objectID, code, message)
 		d.lastErrorCode = code
 		d.lastErrorObj = objectID
+		d.lastError = &DisplayError{ObjectID: objectID, Code: code, Message: message}
 		return d.lastError
 
 	case 1: // delete_id
 		if len(data) < 4 {
-			return errors.New("invalid delete_id event")
+			return &ProtocolError{Kind: "short_delete_id", Object: displayObjectID, Opcode: opcode, Size: uint32(len(data)) + HeaderSize, Err: ErrMalformedFrame}
 		}
 		id := binary.LittleEndian.Uint32(data[0:4])
 		d.objects.Delete(id)
-	}
+		return nil
 
-	return nil
+	default:
+		return &ProtocolError{Kind: "unknown_opcode", Object: displayObjectID, Opcode: opcode, Err: ErrUnknownOpcode}
+	}
 }
 
 // Roundtrip performs a synchronous roundtrip to the compositor
 func (d *Display) Roundtrip() error {
-	log.Printf("wlclient: Roundtrip starting...")
-	// Create callback
 	callbackID := d.allocateID()
 	done := make(chan error, 1)
 
-	log.Printf("wlclient: Registering callback listener for ID %d", callbackID)
-	// Register callback listener
 	d.AddListener(callbackID, 0, func(_ []byte) {
-		log.Printf("wlclient: Callback %d fired", callbackID)
 		d.objects.Delete(callbackID)
 		done <- nil
 	})
 
 	// Send sync request (opcode 0)
-	log.Printf("wlclient: Sending sync request with callback ID %d", callbackID)
-	if err := d.SendRequest(1, 0, callbackID); err != nil {
+	if err := d.SendRequest(displayObjectID, 0, callbackID); err != nil {
 		return err
 	}
 
-	// Store the callback object to track it
 	d.objects.Store(callbackID, &callbackObject{
 		BaseProxy: BaseProxy{
 			context: d.Context(),
@@ -517,22 +509,14 @@ func (d *Display) Roundtrip() error {
 		display: d,
 	})
 
-	// Process events until callback fires - SIMPLIFIED APPROACH
-	maxIterations := 1000 // Prevent infinite loops
-	for i := 0; i < maxIterations; i++ {
-		// Don't set read deadline for now - causes issues
+	for i := 0; i < 1000; i++ {
 		if err := d.Dispatch(); err != nil {
-			log.Printf("wlclient: Dispatch error: %v", err)
 			return err
 		}
-
-		// Check if callback completed
 		select {
 		case err := <-done:
-			log.Printf("wlclient: Roundtrip completed successfully")
 			return err
 		default:
-			// Continue dispatching
 		}
 	}
 
@@ -648,19 +632,15 @@ func (r *Registry) AddHandler(iface string, handler GlobalHandler) {
 func (r *Registry) Bind(name uint32, iface string, version uint32, proxy Proxy) error {
 	// Set the ID if not already set
 	if proxy.ID() == 0 {
-		newID := r.display.allocateID()
-		log.Printf("wlclient: Allocating new ID %d for interface %s", newID, iface)
-		proxy.SetID(newID)
+		proxy.SetID(r.display.allocateID())
 	}
 
 	// Ensure proxy has a context set - CRITICAL FIX
 	if proxy.Context() == nil {
 		if baseProxy, ok := proxy.(*BaseProxy); ok {
 			baseProxy.SetContext(r.display.Context())
-			log.Printf("wlclient: Set context for proxy ID %d", proxy.ID())
 		} else if setter, ok := proxy.(interface{ SetContext(*Context) }); ok {
 			setter.SetContext(r.display.Context())
-			log.Printf("wlclient: Set context for proxy ID %d via interface", proxy.ID())
 		} else {
 			return fmt.Errorf("proxy doesn't have context and can't set it")
 		}
@@ -671,7 +651,6 @@ func (r *Registry) Bind(name uint32, iface string, version uint32, proxy Proxy) 
 
 	// Also register directly in display objects map
 	r.display.objects.Store(proxy.ID(), proxy)
-	log.Printf("wlclient: Registered proxy ID %d in display objects map", proxy.ID())
 
 	// Send bind request (opcode 0) with proper arguments
 	if err := r.display.SendRequest(r.id, 0, name, iface, version, proxy.ID()); err != nil {
@@ -748,13 +727,11 @@ func (d *Display) handleOutputManagerEvent(objectID uint32, opcode uint16, body 
 	switch opcode {
 	case 0: // head event - creates new zwlr_output_head_v1 object
 		if len(body) < 4 {
-			log.Printf("wlclient: head event body too short: %d bytes", len(body))
 			return false
 		}
 
 		// Parse the new_id for the head object
 		headID := binary.LittleEndian.Uint32(body[0:4])
-		log.Printf("wlclient: Creating server object (head) with ID %d", headID)
 
 		// Create a proper OutputHead object
 		headProxy := &OutputHead{
@@ -766,15 +743,12 @@ func (d *Display) handleOutputManagerEvent(objectID uint32, opcode uint16, body 
 
 		// Register the new head object
 		d.objects.Store(headID, headProxy)
-		log.Printf("wlclient: Registered server-created head object ID %d", headID)
 		return true
 
 	case 1: // done event
-		log.Printf("wlclient: Output manager done event")
 		return false
 
 	case 2: // finished event
-		log.Printf("wlclient: Output manager finished event")
 		return false
 	}
 
@@ -792,21 +766,16 @@ type OutputHead struct {
 
 // Dispatch handles head events
 func (h *OutputHead) Dispatch(event *Event) {
-	log.Printf("wlclient: OutputHead.Dispatch ID %d, opcode %d", h.id, event.Opcode)
 	switch event.Opcode {
 	case 0: // name
 		h.name = event.String()
-		log.Printf("wlclient: Head %d name: %s", h.id, h.name)
 	case 1: // description
 		h.description = event.String()
-		log.Printf("wlclient: Head %d description: %s", h.id, h.description)
 	case 2: // physical_size
 		h.width = event.Int32()
 		h.height = event.Int32()
-		log.Printf("wlclient: Head %d physical size: %dx%d mm", h.id, h.width, h.height)
 	case 3: // mode (creates new mode object)
 		modeID := event.Uint32()
-		log.Printf("wlclient: Head %d mode object created: ID %d", h.id, modeID)
 		// Create mode object
 		mode := &OutputMode{
 			BaseProxy: BaseProxy{
@@ -816,10 +785,8 @@ func (h *OutputHead) Dispatch(event *Event) {
 		}
 		h.context.display.objects.Store(modeID, mode)
 	case 9: // finished
-		log.Printf("wlclient: Head %d finished", h.id)
 		h.context.Unregister(h)
 	default:
-		log.Printf("wlclient: Head %d unhandled opcode %d", h.id, event.Opcode)
 	}
 }
 
@@ -833,21 +800,15 @@ type OutputMode struct {
 
 // Dispatch handles mode events
 func (m *OutputMode) Dispatch(event *Event) {
-	log.Printf("wlclient: OutputMode.Dispatch ID %d, opcode %d", m.id, event.Opcode)
 	switch event.Opcode {
 	case 0: // size
 		m.width = event.Int32()
 		m.height = event.Int32()
-		log.Printf("wlclient: Mode %d size: %dx%d", m.id, m.width, m.height)
 	case 1: // refresh
 		m.refresh = event.Int32()
-		log.Printf("wlclient: Mode %d refresh: %d mHz", m.id, m.refresh)
 	case 2: // preferred
-		log.Printf("wlclient: Mode %d is preferred", m.id)
 	case 3: // finished
-		log.Printf("wlclient: Mode %d finished", m.id)
 		m.context.Unregister(m)
 	default:
-		log.Printf("wlclient: Mode %d unhandled opcode %d", m.id, event.Opcode)
 	}
 }

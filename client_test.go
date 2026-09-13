@@ -3,6 +3,8 @@ package wlturbo
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
+	"net"
 	"testing"
 )
 
@@ -47,7 +49,7 @@ func TestEventPool(t *testing.T) {
 	}
 
 	// Set some data
-	event.ProxyId = 123
+	event.ProxyID = 123
 	event.Opcode = 456
 
 	// Return to pool
@@ -60,7 +62,7 @@ func TestEventPool(t *testing.T) {
 	}
 
 	// The pool might return a clean event or the same one, both are valid
-	t.Logf("Event2: ProxyId=%d, Opcode=%d", event2.ProxyId, event2.Opcode)
+	t.Logf("Event2: ProxyID=%d, Opcode=%d", event2.ProxyID, event2.Opcode)
 
 	// Clean up
 	eventPool.Put(event2)
@@ -72,8 +74,8 @@ func TestEventDispatcher(t *testing.T) {
 	called := false
 	handler := func(event *Event) {
 		called = true
-		if event.ProxyId != 123 || event.Opcode != 1 {
-			t.Errorf("Expected ProxyId=123, Opcode=1, got ProxyId=%d, Opcode=%d", event.ProxyId, event.Opcode)
+		if event.ProxyID != 123 || event.Opcode != 1 {
+			t.Errorf("Expected ProxyID=123, Opcode=1, got ProxyID=%d, Opcode=%d", event.ProxyID, event.Opcode)
 		}
 	}
 
@@ -221,6 +223,54 @@ func TestMessageHeaderParsing(t *testing.T) {
 				t.Errorf("opcode = %d, want %d", opcode, test.wantOp)
 			}
 		})
+	}
+}
+
+// Close must be safe to call repeatedly and must not report an error from the
+// second call.
+func TestDisplayCloseIsIdempotent(t *testing.T) {
+	d := newDisplay(&chunkConn{})
+
+	if err := d.Close(); err != nil {
+		t.Fatalf("first Close: %v", err)
+	}
+	if err := d.Close(); err != nil {
+		t.Fatalf("second Close: %v", err)
+	}
+	if !d.Closed() {
+		t.Error("Closed() = false after Close")
+	}
+}
+
+// A closed display rejects further dispatch instead of reading from a closed
+// descriptor.
+func TestDisplayDispatchAfterCloseReturnsErrClosed(t *testing.T) {
+	d := newDisplay(&chunkConn{chunks: [][]byte{message(7, 3, nil)}})
+
+	if err := d.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if err := d.Dispatch(); !errors.Is(err, net.ErrClosed) {
+		t.Fatalf("Dispatch after Close = %v, want %v", err, net.ErrClosed)
+	}
+}
+
+// Binding registers the proxy for dispatch, and unregistering removes it.
+func TestRegistryBindRegistration(t *testing.T) {
+	d := newDisplay(&chunkConn{})
+	records := []EventRecord{}
+	proxy := &recordingProxy{BaseProxy: BaseProxy{id: 7, context: d.Context()}, records: &records}
+
+	if err := d.Registry().Bind(1, "wl_compositor", 4, proxy); err != nil {
+		t.Fatalf("Bind: %v", err)
+	}
+	if _, ok := d.objects.Load(uint32(7)); !ok {
+		t.Fatal("bound proxy is not registered for dispatch")
+	}
+
+	d.Context().Unregister(proxy)
+	if _, ok := d.objects.Load(uint32(7)); ok {
+		t.Fatal("unregistered proxy is still registered for dispatch")
 	}
 }
 

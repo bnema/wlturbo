@@ -36,6 +36,7 @@ type Event struct {
 	Opcode  uint16
 	data    []byte
 	offset  int
+	display *Display
 }
 
 // Data returns the raw event data
