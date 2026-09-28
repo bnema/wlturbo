@@ -92,6 +92,11 @@ func newChunkDisplay(chunks [][]byte) (*Display, *[]EventRecord) {
 		BaseProxy: BaseProxy{id: 7, context: d.context},
 		records:   &records,
 	})
+	for _, opcode := range []uint16{3, 4, 5} {
+        signature := "uint,"
+        if opcode == 3 { signature = "uint,uint," }
+        d.RegisterEventSignature(7, opcode, signature)
+    }
 	return d, &records
 }
 
@@ -132,7 +137,7 @@ func TestDisplayDispatch_Fragmented(t *testing.T) {
 }
 
 func TestDisplayDispatch_Coalesced(t *testing.T) {
-	first := message(7, 3, []byte{0x11, 0x12, 0x13, 0x14})
+	first := message(7, 4, []byte{0x11, 0x12, 0x13, 0x14})
 	second := message(7, 4, []byte{0x21, 0x22, 0x23, 0x24})
 
 	d, records := newChunkDisplay([][]byte{append(append([]byte{}, first...), second...)})
@@ -146,7 +151,7 @@ func TestDisplayDispatch_Coalesced(t *testing.T) {
 	}
 
 	want := []EventRecord{
-		{Object: 7, Opcode: 3, Body: []byte{0x11, 0x12, 0x13, 0x14}},
+		{Object: 7, Opcode: 4, Body: []byte{0x11, 0x12, 0x13, 0x14}},
 		{Object: 7, Opcode: 4, Body: []byte{0x21, 0x22, 0x23, 0x24}},
 	}
 	if !reflect.DeepEqual(*records, want) {
@@ -157,7 +162,7 @@ func TestDisplayDispatch_Coalesced(t *testing.T) {
 func TestDisplayDispatch_HalfCoalesced(t *testing.T) {
 	// A read boundary that ends between the header and the body of the second
 	// message must not be mistaken for a frame boundary.
-	whole := append(message(7, 3, []byte{0x01, 0x02, 0x03, 0x04}),
+	whole := append(message(7, 4, []byte{0x01, 0x02, 0x03, 0x04}),
 		message(7, 5, []byte{0x05, 0x06, 0x07, 0x08})...)
 
 	split := HeaderSize + 4 + 4 // mid-body of the second message
@@ -171,7 +176,7 @@ func TestDisplayDispatch_HalfCoalesced(t *testing.T) {
 	}
 
 	want := []EventRecord{
-		{Object: 7, Opcode: 3, Body: []byte{0x01, 0x02, 0x03, 0x04}},
+		{Object: 7, Opcode: 4, Body: []byte{0x01, 0x02, 0x03, 0x04}},
 		{Object: 7, Opcode: 5, Body: []byte{0x05, 0x06, 0x07, 0x08}},
 	}
 	if !reflect.DeepEqual(*records, want) {
@@ -299,7 +304,7 @@ func TestDisplayDispatch_PeerClose(t *testing.T) {
 		},
 		{
 			name:   "closed after a complete message",
-			chunks: [][]byte{message(7, 3, []byte{0x01, 0x02, 0x03, 0x04})},
+			chunks: [][]byte{message(7, 4, []byte{0x01, 0x02, 0x03, 0x04})},
 		},
 	}
 

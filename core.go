@@ -3,10 +3,10 @@ package wlturbo
 import (
 	"encoding/binary"
 	"errors"
-
-	// "log"
 	"sync"
 	"sync/atomic"
+
+	"golang.org/x/sys/unix"
 )
 
 // Context provides a compatibility layer for wl.Context
@@ -37,6 +37,8 @@ type Event struct {
 	data    []byte
 	offset  int
 	display *Display
+	fds     []*OwnedFD
+	fdIndex int
 }
 
 // Data returns the raw event data
@@ -74,15 +76,12 @@ func (c *Context) SendRequestWithFDs(proxy Proxy, opcode uint32, fds []int, args
 
 // Register registers a proxy object
 func (c *Context) Register(proxy Proxy) {
-	if proxy != nil && proxy.ID() != 0 {
+	if proxy != nil && proxy.ID() != 0 && !c.closed.Load() {
+		if proxy.Context() != c {
+			return
+		}
 		c.proxies.Store(proxy.ID(), proxy)
 		c.display.objects.Store(proxy.ID(), proxy)
-		// Debug large IDs
-		// if proxy.ID() > 1000000 {
-		// 	log.Printf("wlclient: WARNING: Registering proxy with suspicious ID %d (0x%x)", proxy.ID(), proxy.ID())
-		// } else if proxy.ID() == 5 {
-		// 	log.Printf("wlclient: Registered output manager proxy with ID 5")
-		// }
 	}
 }
 
@@ -221,19 +220,61 @@ func (e *Event) Array() []byte {
 	return arr
 }
 
-// Fd reads a file descriptor that was delivered out-of-band for this event.
-// Descriptors are queued on the connection in arrival order, as the Wayland
-// wire protocol requires. The returned descriptor is owned by the caller,
-// which must close it. It returns 0 when the event carried no descriptor.
-func (e *Event) Fd() uintptr {
-	if e.display != nil {
-		if fd, ok := e.display.nextFD(); ok {
-			return uintptr(fd)
-		}
+// OwnedFD owns one received descriptor. Close is idempotent; Take transfers
+// ownership to the caller (who must close it). Descriptor zero is valid.
+type OwnedFD struct {
+	mu sync.Mutex
+	fd int
+}
+
+func (f *OwnedFD) Take() (int, error) {
+	if f == nil {
+		return -1, errors.New("missing descriptor")
 	}
-	// No descriptor was delivered: consume the placeholder argument.
-	_ = e.Uint32()
-	return 0
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.fd < 0 {
+		return -1, errors.New("descriptor already taken or closed")
+	}
+	n := f.fd
+	f.fd = -1
+	return n, nil
+}
+func (f *OwnedFD) Close() error {
+	if f == nil {
+		return nil
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.fd < 0 {
+		return nil
+	}
+	n := f.fd
+	f.fd = -1
+	return unix.Close(n)
+}
+
+// FD transfers ownership of the next descriptor assigned to this event.
+// An unclaimed descriptor is closed when dispatch completes.
+func (e *Event) FD() *OwnedFD {
+	if e.fdIndex >= len(e.fds) {
+		return nil
+	}
+	fd := e.fds[e.fdIndex]
+	e.fds[e.fdIndex] = nil
+	e.fdIndex++
+	return fd
+}
+
+// Fd is the legacy raw descriptor API; prefer FD for explicit ownership.
+func (e *Event) Fd() uintptr {
+	fd := e.FD()
+	if fd == nil {
+		_ = e.Uint32()
+		return 0
+	}
+	n, _ := fd.Take()
+	return uintptr(n)
 }
 
 // NewId reads a new object ID from the event
@@ -278,32 +319,24 @@ type RegistryGlobalRemoveEvent struct {
 
 // AddGlobalHandler adds a global handler to the registry
 func (r *Registry) AddGlobalHandler(handler RegistryGlobalHandler) {
-	// Store the handler to be called for ALL globals
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	// Initialize handlers map if needed
-	if r.handlers == nil {
-		r.handlers = make(map[string]GlobalHandler)
+	if handler == nil {
+		return
 	}
-
 	r.AddHandler("*", func(registry *Registry, name uint32, version uint32) {
-		global, ok := r.FindGlobalByName(name)
-		if ok {
-			event := RegistryGlobalEvent{
-				Registry:  r,
-				Name:      name,
-				Interface: global.Interface,
-				Version:   version,
-			}
-			handler.HandleRegistryGlobal(event)
+		if global, ok := r.FindGlobalByName(name); ok {
+			handler.HandleRegistryGlobal(RegistryGlobalEvent{Registry: r, Name: name, Interface: global.Interface, Version: version})
 		}
 	})
 }
 
-// AddGlobalRemoveHandler adds a global remove handler (placeholder)
+// AddGlobalRemoveHandler registers a handler for registry removals.
 func (r *Registry) AddGlobalRemoveHandler(handler RegistryGlobalRemoveHandler) {
-	// Would need to implement removal handling
+	if handler == nil {
+		return
+	}
+	r.mu.Lock()
+	r.removeHandlers = append(r.removeHandlers, handler)
+	r.mu.Unlock()
 }
 
 // FindGlobalByName finds a global by its name ID
@@ -340,342 +373,12 @@ func (d *Display) Sync() (Object, error) {
 		display: d,
 	}
 
-	// Send sync request (opcode 0)
+	// Store before sending: the compositor may reply immediately.
+	d.context.Register(callback)
 	if err := d.SendRequest(1, 0, callbackID); err != nil {
-		return nil, err
-	}
-
-	// Store the callback object
-	d.objects.Store(callbackID, callback)
-
-	return callback, nil
-}
-
-// Additional protocol object types needed for compatibility
-
-// Seat capability constants
-const (
-	SeatCapabilityPointer  = 1
-	SeatCapabilityKeyboard = 2
-	SeatCapabilityTouch    = 4
-)
-
-// Seat represents a wl_seat
-type Seat struct {
-	BaseProxy
-	capabilities uint32
-	name         string
-}
-
-// SeatCapabilitiesHandler handles seat capabilities events
-type SeatCapabilitiesHandler interface {
-	HandleSeatCapabilities(seat *Seat, capabilities uint32)
-}
-
-// SeatNameHandler handles seat name events
-type SeatNameHandler interface {
-	HandleSeatName(seat *Seat, name string)
-}
-
-// NewSeat creates a new seat proxy
-func NewSeat(ctx *Context) *Seat {
-	return &Seat{
-		BaseProxy: BaseProxy{
-			context: ctx,
-		},
-	}
-}
-
-// GetPointer gets the pointer device
-func (s *Seat) GetPointer() (*Pointer, error) {
-	pointer := &Pointer{
-		BaseProxy: BaseProxy{
-			context: s.context,
-			id:      s.context.display.allocateID(),
-		},
-	}
-
-	// Register pointer before sending request
-	s.context.Register(pointer)
-
-	// Send get_pointer request (opcode 0)
-	err := s.context.SendRequest(s, 0, pointer.id)
-	if err != nil {
-		s.context.Unregister(pointer)
-		return nil, err
-	}
-
-	return pointer, nil
-}
-
-// GetKeyboard gets the keyboard device
-func (s *Seat) GetKeyboard() (*Keyboard, error) {
-	keyboard := &Keyboard{
-		BaseProxy: BaseProxy{
-			context: s.context,
-			id:      s.context.display.allocateID(),
-		},
-	}
-
-	// Register keyboard before sending request
-	s.context.Register(keyboard)
-
-	// Send get_keyboard request (opcode 1)
-	err := s.context.SendRequest(s, 1, keyboard.id)
-	if err != nil {
-		s.context.Unregister(keyboard)
-		return nil, err
-	}
-
-	return keyboard, nil
-}
-
-// GetTouch gets the touch device
-func (s *Seat) GetTouch() (*Touch, error) {
-	touch := &Touch{
-		BaseProxy: BaseProxy{
-			context: s.context,
-			id:      s.context.display.allocateID(),
-		},
-	}
-
-	// Register touch before sending request
-	s.context.Register(touch)
-
-	// Send get_touch request (opcode 2)
-	err := s.context.SendRequest(s, 2, touch.id)
-	if err != nil {
-		s.context.Unregister(touch)
-		return nil, err
-	}
-
-	return touch, nil
-}
-
-// Release releases the seat
-func (s *Seat) Release() error {
-	err := s.context.SendRequest(s, 3) // opcode 3
-	if err == nil {
-		s.context.Unregister(s)
-	}
-	return err
-}
-
-// Capabilities returns the seat capabilities
-func (s *Seat) Capabilities() uint32 {
-	return s.capabilities
-}
-
-// Name returns the seat name
-func (s *Seat) Name() string {
-	return s.name
-}
-
-// Dispatch handles events for the seat
-func (s *Seat) Dispatch(event *Event) {
-	// Handle seat events
-	switch event.Opcode {
-	case 0: // capabilities
-		s.capabilities = event.Uint32()
-		// TODO: Call registered handlers
-	case 1: // name
-		s.name = event.String()
-		// TODO: Call registered handlers
-	}
-}
-
-// Surface represents a wl_surface
-type Surface struct {
-	BaseProxy
-}
-
-// NewSurface creates a new surface proxy
-func NewSurface(ctx *Context) *Surface {
-	return &Surface{
-		BaseProxy: BaseProxy{
-			context: ctx,
-		},
-	}
-}
-
-// Destroy destroys the surface
-func (s *Surface) Destroy() error {
-	err := s.context.SendRequest(s, 0) // opcode 0
-	if err == nil {
-		s.context.Unregister(s)
-	}
-	return err
-}
-
-// Attach attaches a buffer to the surface
-func (s *Surface) Attach(buffer Object, x, y int32) error {
-	return s.context.SendRequest(s, 1, buffer, x, y) // opcode 1
-}
-
-// Damage marks a region of the surface as damaged
-func (s *Surface) Damage(x, y, width, height int32) error {
-	return s.context.SendRequest(s, 2, x, y, width, height) // opcode 2
-}
-
-// Frame requests a frame callback
-func (s *Surface) Frame() (Object, error) {
-	callback := &callbackObject{
-		BaseProxy: BaseProxy{
-			context: s.context,
-			id:      s.context.display.allocateID(),
-		},
-		display: s.context.display,
-	}
-	s.context.Register(callback)
-
-	err := s.context.SendRequest(s, 3, callback.id) // opcode 3
-	if err != nil {
-		s.context.Unregister(callback)
+		d.context.Unregister(callback)
 		return nil, err
 	}
 
 	return callback, nil
-}
-
-// SetOpaqueRegion sets the opaque region
-func (s *Surface) SetOpaqueRegion(region *Region) error {
-	return s.context.SendRequest(s, 4, region) // opcode 4
-}
-
-// SetInputRegion sets the input region
-func (s *Surface) SetInputRegion(region *Region) error {
-	return s.context.SendRequest(s, 5, region) // opcode 5
-}
-
-// Commit commits pending surface state
-func (s *Surface) Commit() error {
-	return s.context.SendRequest(s, 6) // opcode 6
-}
-
-// SetBufferTransform sets the buffer transform
-func (s *Surface) SetBufferTransform(transform int32) error {
-	return s.context.SendRequest(s, 7, transform) // opcode 7
-}
-
-// SetBufferScale sets the buffer scale
-func (s *Surface) SetBufferScale(scale int32) error {
-	return s.context.SendRequest(s, 8, scale) // opcode 8
-}
-
-// DamageBuffer marks a region of the buffer as damaged
-func (s *Surface) DamageBuffer(x, y, width, height int32) error {
-	return s.context.SendRequest(s, 9, x, y, width, height) // opcode 9
-}
-
-// Offset sets the buffer offset
-func (s *Surface) Offset(x, y int32) error {
-	return s.context.SendRequest(s, 10, x, y) // opcode 10
-}
-
-// Dispatch handles surface events
-func (s *Surface) Dispatch(event *Event) {
-	// Surface can receive enter/leave/preferred_buffer_scale/preferred_buffer_transform events
-	// But for now we don't handle them
-}
-
-// Pointer represents a wl_pointer
-type Pointer struct {
-	BaseProxy
-}
-
-// Keyboard represents a wl_keyboard
-type Keyboard struct {
-	BaseProxy
-}
-
-// Touch represents a wl_touch
-type Touch struct {
-	BaseProxy
-}
-
-// Output represents a wl_output
-type Output struct {
-	BaseProxy
-}
-
-// Region represents a wl_region
-type Region struct {
-	BaseProxy
-}
-
-// Add adds a rectangle to the region
-func (r *Region) Add(x, y, width, height int32) error {
-	return r.context.SendRequest(r, 0, x, y, width, height) // opcode 0
-}
-
-// Subtract subtracts a rectangle from the region
-func (r *Region) Subtract(x, y, width, height int32) error {
-	return r.context.SendRequest(r, 1, x, y, width, height) // opcode 1
-}
-
-// Destroy destroys the region
-func (r *Region) Destroy() error {
-	err := r.context.SendRequest(r, 2) // opcode 2
-	if err == nil {
-		r.context.Unregister(r)
-	}
-	return err
-}
-
-// Compositor represents a wl_compositor
-type Compositor struct {
-	BaseProxy
-}
-
-// NewCompositor creates a new compositor proxy
-func NewCompositor(ctx *Context) *Compositor {
-	return &Compositor{
-		BaseProxy: BaseProxy{
-			context: ctx,
-		},
-	}
-}
-
-// CreateSurface creates a new surface
-func (c *Compositor) CreateSurface() (*Surface, error) {
-	surface := &Surface{
-		BaseProxy: BaseProxy{
-			context: c.context,
-			id:      c.context.display.allocateID(),
-		},
-	}
-
-	// Register surface before sending request
-	c.context.Register(surface)
-
-	// Send create_surface request (opcode 0)
-	err := c.context.SendRequest(c, 0, surface.id)
-	if err != nil {
-		c.context.Unregister(surface)
-		return nil, err
-	}
-
-	return surface, nil
-}
-
-// CreateRegion creates a new region
-func (c *Compositor) CreateRegion() (*Region, error) {
-	region := &Region{
-		BaseProxy: BaseProxy{
-			context: c.context,
-			id:      c.context.display.allocateID(),
-		},
-	}
-
-	// Register region before sending request
-	c.context.Register(region)
-
-	// Send create_region request (opcode 1)
-	err := c.context.SendRequest(c, 1, region.id)
-	if err != nil {
-		c.context.Unregister(region)
-		return nil, err
-	}
-
-	return region, nil
 }

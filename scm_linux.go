@@ -6,9 +6,12 @@ package wlturbo
 import (
 	"errors"
 	"fmt"
-	"golang.org/x/sys/unix"
+	"io"
+	"net"
 	"sync"
 	"syscall"
+
+	"golang.org/x/sys/unix"
 )
 
 // maxRecvFDs bounds how many ancillary file descriptors a single read accepts.
@@ -88,20 +91,9 @@ func parseFDs(oob []byte) ([]int, error) {
 	return fds, nil
 }
 
-// queueFDs appends descriptors to this connection's pending list.
-func (d *Display) queueFDs(fds []int) {
-	if len(fds) == 0 {
-		return
-	}
-	d.fdMu.Lock()
-	d.pendingFDs = append(d.pendingFDs, fds...)
-	d.fdMu.Unlock()
-}
-
-// nextFD removes and returns the oldest pending descriptor.
+// queueFDs is called only by the active Dispatch reader.
+func (d *Display) queueFDs(fds []int) { d.pendingFDs = append(d.pendingFDs, fds...) }
 func (d *Display) nextFD() (int, bool) {
-	d.fdMu.Lock()
-	defer d.fdMu.Unlock()
 	if len(d.pendingFDs) == 0 {
 		return -1, false
 	}
@@ -110,13 +102,10 @@ func (d *Display) nextFD() (int, bool) {
 	return fd, true
 }
 
-// closePendingFDs closes every descriptor this connection still holds.
+// closePendingFDs is called under recvMu (including during shutdown).
 func (d *Display) closePendingFDs() {
-	d.fdMu.Lock()
 	fds := d.pendingFDs
 	d.pendingFDs = nil
-	d.fdMu.Unlock()
-
 	for _, fd := range fds {
 		if fd >= 0 {
 			_ = unix.Close(fd)
@@ -124,20 +113,32 @@ func (d *Display) closePendingFDs() {
 	}
 }
 
+// CloseSentFD releases a descriptor after a complete successful Wayland send.
+func CloseSentFD(fd int) error { return unix.Close(fd) }
+
 // sendmsgWithFDs sends a message, attaching file descriptors when present.
 func (d *Display) sendmsgWithFDs(buf []byte, fds []int) error {
 	d.sendMu.Lock()
 	defer d.sendMu.Unlock()
 
+	if d.closed.Load() {
+		return net.ErrClosed
+	}
 	if len(fds) == 0 {
-		_, err := d.conn.Write(buf)
+		n, err := d.conn.Write(buf)
+		if err == nil && n != len(buf) {
+			return io.ErrShortWrite
+		}
 		return err
 	}
 	if d.unix == nil {
 		return errors.New("wlturbo: cannot send file descriptors over a non-Unix connection")
 	}
 
-	_, _, err := d.unix.WriteMsgUnix(buf, unix.UnixRights(fds...), nil)
+	n, _, err := d.unix.WriteMsgUnix(buf, unix.UnixRights(fds...), nil)
+	if err == nil && n != len(buf) {
+		return io.ErrShortWrite
+	}
 	return err
 }
 

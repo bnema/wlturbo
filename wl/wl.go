@@ -21,14 +21,7 @@ type (
 	RegistryGlobalRemoveHandler = wlturbo.RegistryGlobalRemoveHandler
 	RegistryGlobalEvent         = wlturbo.RegistryGlobalEvent
 	RegistryGlobalRemoveEvent   = wlturbo.RegistryGlobalRemoveEvent
-	Seat                        = wlturbo.Seat
-	Surface                     = wlturbo.Surface
-	Pointer                     = wlturbo.Pointer
-	Keyboard                    = wlturbo.Keyboard
-	Touch                       = wlturbo.Touch
-	Output                      = wlturbo.Output
-	Region                      = wlturbo.Region
-	Compositor                  = wlturbo.Compositor
+	OwnedFD                     = wlturbo.OwnedFD
 
 	// Transport failures. Without these, a caller that imports this shim has to
 	// import the root package as well just to classify an error.
@@ -40,10 +33,8 @@ type (
 var (
 	Connect             = wlturbo.Connect
 	NewFixed            = wlturbo.NewFixed
-	NewSeat             = wlturbo.NewSeat
 	NewContext          = wlturbo.NewContext
-	NewSurface          = wlturbo.NewSurface
-	NewCompositor       = wlturbo.NewCompositor
+	CloseSentFD         = wlturbo.CloseSentFD
 	CreateAnonymousFile = wlturbo.CreateAnonymousFile
 	MapMemory           = wlturbo.MapMemory
 	UnmapMemory         = wlturbo.UnmapMemory
@@ -56,11 +47,4 @@ var (
 	ErrUnknownObject  = wlturbo.ErrUnknownObject
 	ErrUnknownOpcode  = wlturbo.ErrUnknownOpcode
 	ErrDisplayError   = wlturbo.ErrDisplayError
-)
-
-// Seat capability constants
-const (
-	SeatCapabilityPointer  = wlturbo.SeatCapabilityPointer
-	SeatCapabilityKeyboard = wlturbo.SeatCapabilityKeyboard
-	SeatCapabilityTouch    = wlturbo.SeatCapabilityTouch
 )
