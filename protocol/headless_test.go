@@ -103,6 +103,8 @@ func TestHeadlessNeferWL(t *testing.T) {
 	}
 	syncManager := drmsyncobj.NewWpLinuxDrmSyncobjManager(d.Context())
 	bind(drmsyncobj.WpLinuxDrmSyncobjManagerInterface, 1, syncManager)
+	dataManager := core.NewDataDeviceManager(d.Context())
+	bind(core.DataDeviceManagerInterface, 4, dataManager)
 	vp := viewporter.NewWpViewporter(d.Context())
 	bind(viewporter.WpViewporterInterface, 1, vp)
 	if g, ok := d.Registry().FindGlobal(fractionalscale.WpFractionalScaleManagerInterface); ok {
@@ -127,19 +129,20 @@ func TestHeadlessNeferWL(t *testing.T) {
 	noerr(t, e)
 	ss, e := syncManager.GetSurface(surface)
 	noerr(t, e)
-	configured, done := false, false
+	configured, done, mainDevice, tableOK := false, false, false, false
 	top.OnConfigure(func(w, h int32, states []byte) { t.Logf("xdg_toplevel.configure %dx%d", w, h) })
 	xs.OnConfigure(func(serial uint32) {
 		noerr(t, xs.AckConfigure(serial))
 		configured = true
 		t.Logf("xdg_surface.configure ack=%d", serial)
 	})
-	feedback.OnMainDevice(func(b []byte) { t.Logf("main_device=%x", b) })
+	feedback.OnMainDevice(func(b []byte) { mainDevice = len(b) == 8; t.Logf("main_device=%x", b) })
 	feedback.OnFormatTable(func(fd *wlturbo.OwnedFD, size uint32) {
 		entries, e := linuxdmabuf.ReadFormatTable(fd, size)
 		if e != nil {
 			t.Errorf("format table: %v", e)
 		} else {
+			tableOK = len(entries) > 0
 			t.Logf("format-table entries=%d", len(entries))
 		}
 	})
@@ -151,8 +154,8 @@ func TestHeadlessNeferWL(t *testing.T) {
 			t.Fatalf("dispatch: %v\n%s", e, headlessLog(log))
 		}
 	}
-	if !configured || !done {
-		t.Fatalf("configure=%t feedback=%t: %v\n%s", configured, done, ctx.Err(), headlessLog(log))
+	if !configured || !done || !mainDevice || !tableOK {
+		t.Fatalf("configure=%t feedback=%t main_device=%t table=%t: %v\n%s", configured, done, mainDevice, tableOK, ctx.Err(), headlessLog(log))
 	}
 	noerr(t, surface.Commit())
 	// Drop all child objects while their parents are still alive.
@@ -162,6 +165,7 @@ func TestHeadlessNeferWL(t *testing.T) {
 	noerr(t, xs.Destroy())
 	noerr(t, surface.Destroy())
 	noerr(t, vp.Destroy())
+	noerr(t, dataManager.Release())
 	noerr(t, syncManager.Destroy())
 	noerr(t, dm.Destroy())
 	noerr(t, wm.Destroy())
