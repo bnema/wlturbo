@@ -94,16 +94,19 @@ func noerr(t *testing.T, e error) {
 		t.Fatal(e)
 	}
 }
-func bind(t *testing.T, d *wlturbo.Display, p *net.UnixConn, name uint32, iface string, supported uint32, proxy wlturbo.Proxy) {
+func bind(t *testing.T, d *wlturbo.Display, p *net.UnixConn, name uint32, iface string, announced uint32, supported uint32, proxy wlturbo.Proxy) {
 	t.Helper()
-	v := supported
-	if v > 4 {
-		v = 4
-	}
-	noerr(t, d.Registry().Bind(name, iface, v, proxy))
+	// A fake server must advertise a global before clients can negotiate it.
+	announcement := append(msg(0, 0, name)[8:], str(iface)...)
+	announcement = append(announcement, msg(0, 0, announced)[8:]...)
+	send(t, p, payload(d.Registry().ID(), 0, announcement...))
+	noerr(t, d.Dispatch())
+	v, err := d.Registry().BindNegotiated(iface, supported, proxy)
+	noerr(t, err)
+	want := min(announced, supported)
 	_, op, b := request(t, p)
-	if op != 0 || binary.NativeEndian.Uint32(b) != name || binary.NativeEndian.Uint32(b[len(b)-8:]) != v || binary.NativeEndian.Uint32(b[len(b)-4:]) != proxy.ID() {
-		t.Fatalf("bad bind %s version=%d %x", iface, v, b)
+	if op != 0 || v != want || binary.NativeEndian.Uint32(b) != name || binary.NativeEndian.Uint32(b[len(b)-8:]) != want || binary.NativeEndian.Uint32(b[len(b)-4:]) != proxy.ID() {
+		t.Fatalf("bad bind %s announced=%d supported=%d negotiated=%d wire=%x", iface, announced, supported, v, b)
 	}
 }
 func TestExtensionsOverSocketpair(t *testing.T) {
@@ -121,6 +124,10 @@ func TestExtensionsOverSocketpair(t *testing.T) {
 	if _, ok := d.Registry().FindGlobal(textinput.TextInputManagerV3Interface); ok {
 		t.Fatal("absent text input")
 	}
+	// Remove the discovery-only announcement before the bind matrix assigns
+	// its own global name to this interface.
+	send(t, p, msg(d.Registry().ID(), 1, 11))
+	noerr(t, d.Dispatch())
 	surface := core.NewSurface(d.Context())
 	surface.SetID(d.AllocateID())
 	d.Context().Register(surface)
@@ -128,7 +135,7 @@ func TestExtensionsOverSocketpair(t *testing.T) {
 	seat.SetID(d.AllocateID())
 	d.Context().Register(seat)
 	wm := xdgshell.NewXdgWmBase(d.Context())
-	bind(t, d, p, 1, xdgshell.XdgWmBaseInterface, 7, wm)
+	bind(t, d, p, 1, xdgshell.XdgWmBaseInterface, 6, 7, wm)
 	xs, e := wm.GetXdgSurface(surface)
 	noerr(t, e)
 	request(t, p)
@@ -158,7 +165,7 @@ func TestExtensionsOverSocketpair(t *testing.T) {
 	noerr(t, wm.Destroy())
 	request(t, p)
 	dm := linuxdmabuf.NewLinuxDmabuf(d.Context())
-	bind(t, d, p, 2, linuxdmabuf.LinuxDmabufInterface, 6, dm)
+	bind(t, d, p, 2, linuxdmabuf.LinuxDmabufInterface, 6, 4, dm)
 	fb, e := dm.GetDefaultFeedback()
 	noerr(t, e)
 	request(t, p)
@@ -270,7 +277,7 @@ func TestExtensionsOverSocketpair(t *testing.T) {
 	noerr(t, dm.Destroy())
 	request(t, p)
 	sync := drmsyncobj.NewWpLinuxDrmSyncobjManager(d.Context())
-	bind(t, d, p, 3, drmsyncobj.WpLinuxDrmSyncobjManagerInterface, 1, sync)
+	bind(t, d, p, 3, drmsyncobj.WpLinuxDrmSyncobjManagerInterface, 1, 1, sync)
 	ss, e := sync.GetSurface(surface)
 	noerr(t, e)
 	request(t, p)
@@ -300,7 +307,7 @@ func TestExtensionsOverSocketpair(t *testing.T) {
 	noerr(t, sync.Destroy())
 	request(t, p)
 	vp := viewporter.NewWpViewporter(d.Context())
-	bind(t, d, p, 4, viewporter.WpViewporterInterface, 1, vp)
+	bind(t, d, p, 4, viewporter.WpViewporterInterface, 1, 1, vp)
 	view, e := vp.GetViewport(surface)
 	noerr(t, e)
 	request(t, p)
@@ -309,7 +316,7 @@ func TestExtensionsOverSocketpair(t *testing.T) {
 	noerr(t, vp.Destroy())
 	request(t, p)
 	fs := fractionalscale.NewWpFractionalScaleManager(d.Context())
-	bind(t, d, p, 5, fractionalscale.WpFractionalScaleManagerInterface, 1, fs)
+	bind(t, d, p, 5, fractionalscale.WpFractionalScaleManagerInterface, 1, 1, fs)
 	scale, e := fs.GetFractionalScale(surface)
 	noerr(t, e)
 	request(t, p)
@@ -325,7 +332,7 @@ func TestExtensionsOverSocketpair(t *testing.T) {
 	noerr(t, fs.Destroy())
 	request(t, p)
 	ti := textinput.NewTextInputManagerV3(d.Context())
-	bind(t, d, p, 6, textinput.TextInputManagerV3Interface, 1, ti)
+	bind(t, d, p, 6, textinput.TextInputManagerV3Interface, 2, 1, ti)
 	input, e := ti.GetTextInput(seat)
 	noerr(t, e)
 	request(t, p)
@@ -362,7 +369,7 @@ func TestExtensionsOverSocketpair(t *testing.T) {
 	// Core data-device remains in protocol/core; verify its typed child and
 	// both directions of clipboard descriptor ownership.
 	mgr := core.NewDataDeviceManager(d.Context())
-	bind(t, d, p, 7, core.DataDeviceManagerInterface, 3, mgr)
+	bind(t, d, p, 7, core.DataDeviceManagerInterface, 3, 4, mgr)
 	device, e := mgr.GetDataDevice(seat)
 	noerr(t, e)
 	request(t, p)
@@ -442,7 +449,11 @@ func TestLiveFeedback(t *testing.T) {
 			t.Fatal("dmabuf feedback requires v4")
 		}
 		dm := linuxdmabuf.NewLinuxDmabuf(d.Context())
-		noerr(t, d.Registry().Bind(g.Name, iface, v, dm))
+		negotiated, err := d.Registry().BindNegotiated(iface, 4, dm)
+		noerr(t, err)
+		if negotiated != v {
+			t.Fatalf("dmabuf negotiated=%d want=%d", negotiated, v)
+		}
 		fb, e := dm.GetDefaultFeedback()
 		noerr(t, e)
 		done := false

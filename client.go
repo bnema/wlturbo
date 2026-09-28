@@ -789,6 +789,28 @@ func (r *Registry) AddHandler(iface string, handler GlobalHandler) {
 	r.handlers[iface] = handler
 }
 
+// ErrGlobalNotFound reports that the compositor does not announce a global.
+var ErrGlobalNotFound = errors.New("wlturbo: global not announced")
+
+// BindNegotiated binds the announced global for iface at
+// min(announced version, supported) and returns that version. It returns
+// ErrGlobalNotFound when the global is absent, so callers can decide whether
+// the capability is optional.
+func (r *Registry) BindNegotiated(iface string, supported uint32, proxy Proxy) (uint32, error) {
+	if supported == 0 {
+		return 0, fmt.Errorf("wlturbo: supported version for %s must be at least 1", iface)
+	}
+	g, ok := r.FindGlobal(iface)
+	if !ok || g.Version == 0 {
+		return 0, fmt.Errorf("%w: %s", ErrGlobalNotFound, iface)
+	}
+	version := min(g.Version, supported)
+	if err := r.Bind(g.Name, iface, version, proxy); err != nil {
+		return 0, err
+	}
+	return version, nil
+}
+
 // Bind binds to a global object and returns a typed proxy
 func (r *Registry) Bind(name uint32, iface string, version uint32, proxy Proxy) error {
 	// Set the ID if not already set

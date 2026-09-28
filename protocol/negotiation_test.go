@@ -4,26 +4,13 @@ package protocol_test
 
 import (
 	"encoding/binary"
+	"errors"
+	"testing"
+
 	"github.com/bnema/wlturbo"
 	"github.com/bnema/wlturbo/protocol/xdgshell"
-	"testing"
 )
 
-// bindAnnounced selects a supported version using the registry's announcement.
-func bindAnnounced(d *wlturbo.Display, iface string, supported uint32, proxy wlturbo.Proxy) (uint32, error) {
-	g, ok := d.Registry().FindGlobal(iface)
-	if !ok {
-		return 0, nil
-	}
-	version := g.Version
-	if version > supported {
-		version = supported
-	}
-	if version == 0 {
-		return 0, nil
-	}
-	return version, d.Registry().Bind(g.Name, iface, version, proxy)
-}
 func TestAnnouncedVersionNegotiation(t *testing.T) {
 	c, p := pair(t)
 	d, e := wlturbo.ConnectFromConn(c)
@@ -31,8 +18,11 @@ func TestAnnouncedVersionNegotiation(t *testing.T) {
 	defer d.Close()
 	request(t, p)
 	iface := xdgshell.XdgWmBaseInterface
-	if v, e := bindAnnounced(d, iface, 6, xdgshell.NewXdgWmBase(d.Context())); e != nil || v != 0 {
+	if v, e := d.Registry().BindNegotiated(iface, 6, xdgshell.NewXdgWmBase(d.Context())); v != 0 || !errors.Is(e, wlturbo.ErrGlobalNotFound) {
 		t.Fatalf("missing: %d %v", v, e)
+	}
+	if v, e := d.Registry().BindNegotiated(iface, 0, xdgshell.NewXdgWmBase(d.Context())); v != 0 || e == nil || errors.Is(e, wlturbo.ErrGlobalNotFound) {
+		t.Fatalf("unsupported zero: %d %v", v, e)
 	}
 	for i, version := range []uint32{2, 9} {
 		name := uint32(30 + i)
@@ -41,7 +31,10 @@ func TestAnnouncedVersionNegotiation(t *testing.T) {
 		send(t, p, payload(d.Registry().ID(), 0, announcement...))
 		noerr(t, d.Dispatch())
 		proxy := xdgshell.NewXdgWmBase(d.Context())
-		negotiated, e := bindAnnounced(d, iface, 6, proxy)
+		if v, e := d.Registry().BindNegotiated(iface, 0, proxy); v != 0 || e == nil || errors.Is(e, wlturbo.ErrGlobalNotFound) {
+			t.Fatalf("supported zero with global: %d %v", v, e)
+		}
+		negotiated, e := d.Registry().BindNegotiated(iface, 6, proxy)
 		noerr(t, e)
 		want := version
 		if want > 6 {

@@ -73,23 +73,12 @@ func TestHeadlessNeferWL(t *testing.T) {
 	stop := context.AfterFunc(ctx, func() { _ = d.Close() })
 	defer stop()
 	noerr(t, d.Roundtrip())
-	require := func(iface string) wlturbo.Global {
-		t.Helper()
-		g, ok := d.Registry().FindGlobal(iface)
-		if !ok {
-			t.Fatalf("required global %s absent\n%s", iface, headlessLog(log))
-		}
-		t.Logf("%s server=%d", iface, g.Version)
-		return g
-	}
 	bind := func(iface string, supported uint32, proxy wlturbo.Proxy) uint32 {
 		t.Helper()
-		g := require(iface)
-		v := g.Version
-		if v > supported {
-			v = supported
+		v, err := d.Registry().BindNegotiated(iface, supported, proxy)
+		if err != nil {
+			t.Fatalf("bind %s: %v\n%s", iface, err, headlessLog(log))
 		}
-		noerr(t, d.Registry().Bind(g.Name, iface, v, proxy))
 		t.Logf("%s negotiated=%d", iface, v)
 		return v
 	}
@@ -109,12 +98,10 @@ func TestHeadlessNeferWL(t *testing.T) {
 	bind(viewporter.WpViewporterInterface, 1, vp)
 	if g, ok := d.Registry().FindGlobal(fractionalscale.WpFractionalScaleManagerInterface); ok {
 		fs := fractionalscale.NewWpFractionalScaleManager(d.Context())
-		v := g.Version
-		if v > 1 {
-			v = 1
+		v := bind(g.Interface, 1, fs)
+		if v != 1 {
+			t.Fatalf("fractional scale version %d", v)
 		}
-		noerr(t, d.Registry().Bind(g.Name, g.Interface, v, fs))
-		t.Logf("%s negotiated=%d", g.Interface, v)
 		noerr(t, fs.Destroy())
 	} else {
 		t.Log("fractional scale absent")

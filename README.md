@@ -21,6 +21,8 @@ Higher-level protocol implementations (virtual input devices, output management,
 
 `protocol/core` provides core Wayland (including data-device); `protocol/xdgshell` provides xdg-shell; `protocol/linuxdmabuf` provides linux-dmabuf v4 feedback; `protocol/drmsyncobj` provides linux-drm-syncobj v1; `protocol/viewporter` provides viewporter; `protocol/fractionalscale` provides fractional-scale v1; and `protocol/textinput` provides text-input v3. Bindings handle wire messages and object lifecycle; applications decide compositor policy.
 
+After `display.Roundtrip()` discovers globals, call `display.Registry().BindNegotiated(interfaceName, supportedVersion, proxy)` to bind at the lesser of the advertised and supported versions. It returns the negotiated version; use `errors.Is(err, wlturbo.ErrGlobalNotFound)` to handle absent optional globals.
+
 ## Features
 
 ### Performance Optimizations
