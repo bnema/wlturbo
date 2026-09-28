@@ -17,6 +17,10 @@ WLTurbo provides the foundational Wayland client infrastructure:
 
 Higher-level protocol implementations (virtual input devices, output management, etc.) are intentionally left to specialized libraries that build on top of WLTurbo.
 
+## Generated protocols
+
+`protocol/core` provides core Wayland (including data-device); `protocol/xdgshell` provides xdg-shell; `protocol/linuxdmabuf` provides linux-dmabuf v4 feedback; `protocol/drmsyncobj` provides linux-drm-syncobj v1; `protocol/viewporter` provides viewporter; `protocol/fractionalscale` provides fractional-scale v1; and `protocol/textinput` provides text-input v3. Bindings handle wire messages and object lifecycle; applications decide compositor policy.
+
 ## Features
 
 ### Performance Optimizations
