@@ -89,6 +89,35 @@ func (c *Context) CheckProxy(proxy Proxy) error {
 	return nil
 }
 
+// SendDestructor sends a destructor request exactly once. The proxy is
+// unregistered atomically before sending, so concurrent callers cannot both
+// write it; the losers receive an error and nothing reaches the wire.
+func (c *Context) SendDestructor(proxy Proxy, opcode uint32, args ...interface{}) error {
+	if err := c.claimDestroy(proxy); err != nil {
+		return err
+	}
+	return c.display.SendRequest(proxy.ID(), uint16(opcode), args...)
+}
+
+// SendDestructorWithFDs is SendDestructor for requests carrying FDs.
+func (c *Context) SendDestructorWithFDs(proxy Proxy, opcode uint32, fds []int, args ...interface{}) error {
+	if err := c.claimDestroy(proxy); err != nil {
+		return err
+	}
+	return c.display.SendRequestWithFDs(proxy.ID(), uint16(opcode), fds, args...)
+}
+
+func (c *Context) claimDestroy(proxy Proxy) error {
+	if err := c.CheckProxy(proxy); err != nil {
+		return err
+	}
+	if !c.proxies.CompareAndDelete(proxy.ID(), proxy) {
+		return errors.New("proxy is not registered")
+	}
+	c.display.objects.CompareAndDelete(proxy.ID(), proxy)
+	return nil
+}
+
 // Register registers a proxy object
 func (c *Context) Register(proxy Proxy) {
 	if proxy != nil && proxy.ID() != 0 && !c.closed.Load() {

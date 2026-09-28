@@ -431,3 +431,43 @@ func TestDestroyedProxyRejectsRequests(t *testing.T) {
 		t.Fatalf("unexpected bytes on wire: %v", err)
 	}
 }
+
+func TestConcurrentDestroySendsOnce(t *testing.T) {
+	c, p := pair(t)
+	d, err := wlturbo.ConnectFromConn(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	receiveRequest(t, p)
+	for round := 0; round < 200; round++ {
+		surface := core.NewSurface(d.Context())
+		surface.SetID(d.AllocateID())
+		d.Context().Register(surface)
+		const callers = 8
+		start := make(chan struct{})
+		results := make(chan error, callers)
+		for i := 0; i < callers; i++ {
+			go func() {
+				<-start
+				results <- surface.Destroy()
+			}()
+		}
+		close(start)
+		ok := 0
+		for i := 0; i < callers; i++ {
+			if <-results == nil {
+				ok++
+			}
+		}
+		if ok != 1 {
+			t.Fatalf("round %d: %d destroys succeeded, want 1", round, ok)
+		}
+		receiveRequest(t, p)
+		p.SetReadDeadline(time.Now().Add(2 * time.Millisecond))
+		if n, err := p.Read(make([]byte, 8)); n != 0 {
+			t.Fatalf("round %d: extra destroy on wire (%d bytes, %v)", round, n, err)
+		}
+		p.SetReadDeadline(time.Time{})
+	}
+}

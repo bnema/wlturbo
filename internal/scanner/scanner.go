@@ -490,11 +490,17 @@ func (s *Scanner) processRequest(iface Interface, req Request, opcode int) (requ
 	if len(argExprs) > 0 {
 		args = ", " + strings.Join(argExprs, ", ")
 	}
+	// Destructors claim the proxy atomically before sending so a concurrent
+	// second destroy cannot reach the wire.
+	send := "SendRequest"
+	if data.Destructor {
+		send = "SendDestructor"
+	}
 	if len(fdExprs) > 0 {
 		data.HasFDs = true
-		data.SendCall = fmt.Sprintf("SendRequestWithFDs(o, %d, []int{%s}%s)", opcode, strings.Join(fdExprs, ", "), args)
+		data.SendCall = fmt.Sprintf("%sWithFDs(o, %d, []int{%s}%s)", send, opcode, strings.Join(fdExprs, ", "), args)
 	} else {
-		data.SendCall = fmt.Sprintf("SendRequest(o, %d%s)", opcode, args)
+		data.SendCall = fmt.Sprintf("%s(o, %d%s)", send, opcode, args)
 	}
 	if data.CreatesChild {
 		data.Results = "(*" + data.ChildType + ", error)"

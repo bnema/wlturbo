@@ -808,10 +808,9 @@ func (o *Compositor) Release() error {
 	if err := o.Context().CheckProxy(o); err != nil {
 		return err
 	}
-	if err := o.Context().SendRequest(o, 2); err != nil {
+	if err := o.Context().SendDestructor(o, 2); err != nil {
 		return err
 	}
-	o.Context().Unregister(o)
 	return nil
 }
 
@@ -867,10 +866,9 @@ func (o *ShmPool) Destroy() error {
 	if err := o.Context().CheckProxy(o); err != nil {
 		return err
 	}
-	if err := o.Context().SendRequest(o, 1); err != nil {
+	if err := o.Context().SendDestructor(o, 1); err != nil {
 		return err
 	}
-	o.Context().Unregister(o)
 	return nil
 }
 
@@ -942,10 +940,9 @@ func (o *Shm) Release() error {
 	if err := o.Context().CheckProxy(o); err != nil {
 		return err
 	}
-	if err := o.Context().SendRequest(o, 1); err != nil {
+	if err := o.Context().SendDestructor(o, 1); err != nil {
 		return err
 	}
-	o.Context().Unregister(o)
 	return nil
 }
 
@@ -1020,10 +1017,9 @@ func (o *Buffer) Destroy() error {
 	if err := o.Context().CheckProxy(o); err != nil {
 		return err
 	}
-	if err := o.Context().SendRequest(o, 0); err != nil {
+	if err := o.Context().SendDestructor(o, 0); err != nil {
 		return err
 	}
-	o.Context().Unregister(o)
 	return nil
 }
 
@@ -1122,10 +1118,9 @@ func (o *DataOffer) Destroy() error {
 	if err := o.Context().CheckProxy(o); err != nil {
 		return err
 	}
-	if err := o.Context().SendRequest(o, 2); err != nil {
+	if err := o.Context().SendDestructor(o, 2); err != nil {
 		return err
 	}
-	o.Context().Unregister(o)
 	return nil
 }
 
@@ -1300,10 +1295,9 @@ func (o *DataSource) Destroy() error {
 	if err := o.Context().CheckProxy(o); err != nil {
 		return err
 	}
-	if err := o.Context().SendRequest(o, 1); err != nil {
+	if err := o.Context().SendDestructor(o, 1); err != nil {
 		return err
 	}
-	o.Context().Unregister(o)
 	return nil
 }
 
@@ -1589,10 +1583,9 @@ func (o *DataDevice) Release() error {
 	if err := o.Context().CheckProxy(o); err != nil {
 		return err
 	}
-	if err := o.Context().SendRequest(o, 2); err != nil {
+	if err := o.Context().SendDestructor(o, 2); err != nil {
 		return err
 	}
-	o.Context().Unregister(o)
 	return nil
 }
 
@@ -1862,10 +1855,9 @@ func (o *DataDeviceManager) Release() error {
 	if err := o.Context().CheckProxy(o); err != nil {
 		return err
 	}
-	if err := o.Context().SendRequest(o, 2); err != nil {
+	if err := o.Context().SendDestructor(o, 2); err != nil {
 		return err
 	}
-	o.Context().Unregister(o)
 	return nil
 }
 
@@ -2232,10 +2224,9 @@ func (o *Surface) Destroy() error {
 	if err := o.Context().CheckProxy(o); err != nil {
 		return err
 	}
-	if err := o.Context().SendRequest(o, 0); err != nil {
+	if err := o.Context().SendDestructor(o, 0); err != nil {
 		return err
 	}
-	o.Context().Unregister(o)
 	return nil
 }
 
@@ -2595,10 +2586,9 @@ func (o *Seat) Release() error {
 	if err := o.Context().CheckProxy(o); err != nil {
 		return err
 	}
-	if err := o.Context().SendRequest(o, 3); err != nil {
+	if err := o.Context().SendDestructor(o, 3); err != nil {
 		return err
 	}
-	o.Context().Unregister(o)
 	return nil
 }
 
@@ -2730,10 +2720,9 @@ func (o *Pointer) Release() error {
 	if err := o.Context().CheckProxy(o); err != nil {
 		return err
 	}
-	if err := o.Context().SendRequest(o, 1); err != nil {
+	if err := o.Context().SendDestructor(o, 1); err != nil {
 		return err
 	}
-	o.Context().Unregister(o)
 	return nil
 }
 
@@ -3169,10 +3158,9 @@ func (o *Keyboard) Release() error {
 	if err := o.Context().CheckProxy(o); err != nil {
 		return err
 	}
-	if err := o.Context().SendRequest(o, 0); err != nil {
+	if err := o.Context().SendDestructor(o, 0); err != nil {
 		return err
 	}
-	o.Context().Unregister(o)
 	return nil
 }
 
@@ -3425,10 +3413,9 @@ func (o *Touch) Release() error {
 	if err := o.Context().CheckProxy(o); err != nil {
 		return err
 	}
-	if err := o.Context().SendRequest(o, 0); err != nil {
+	if err := o.Context().SendDestructor(o, 0); err != nil {
 		return err
 	}
-	o.Context().Unregister(o)
 	return nil
 }
 
@@ -3705,10 +3692,9 @@ func (o *Output) Release() error {
 	if err := o.Context().CheckProxy(o); err != nil {
 		return err
 	}
-	if err := o.Context().SendRequest(o, 0); err != nil {
+	if err := o.Context().SendDestructor(o, 0); err != nil {
 		return err
 	}
-	o.Context().Unregister(o)
 	return nil
 }
 
@@ -3943,10 +3929,9 @@ func (o *Region) Destroy() error {
 	if err := o.Context().CheckProxy(o); err != nil {
 		return err
 	}
-	if err := o.Context().SendRequest(o, 0); err != nil {
+	if err := o.Context().SendDestructor(o, 0); err != nil {
 		return err
 	}
-	o.Context().Unregister(o)
 	return nil
 }
 
@@ -4008,10 +3993,9 @@ func (o *Subcompositor) Destroy() error {
 	if err := o.Context().CheckProxy(o); err != nil {
 		return err
 	}
-	if err := o.Context().SendRequest(o, 0); err != nil {
+	if err := o.Context().SendDestructor(o, 0); err != nil {
 		return err
 	}
-	o.Context().Unregister(o)
 	return nil
 }
 
@@ -4075,10 +4059,9 @@ func (o *Subsurface) Destroy() error {
 	if err := o.Context().CheckProxy(o); err != nil {
 		return err
 	}
-	if err := o.Context().SendRequest(o, 0); err != nil {
+	if err := o.Context().SendDestructor(o, 0); err != nil {
 		return err
 	}
-	o.Context().Unregister(o)
 	return nil
 }
 
@@ -4181,10 +4164,9 @@ func (o *Fixes) Destroy() error {
 	if err := o.Context().CheckProxy(o); err != nil {
 		return err
 	}
-	if err := o.Context().SendRequest(o, 0); err != nil {
+	if err := o.Context().SendDestructor(o, 0); err != nil {
 		return err
 	}
-	o.Context().Unregister(o)
 	return nil
 }
 

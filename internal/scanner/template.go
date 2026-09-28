@@ -73,9 +73,6 @@ if err := o.Context().CheckProxy(o); err != nil { return {{.ErrorReturn}} }
 {{- range .FDArgs}}
     _ = wl.CloseSentFD({{.}})
 {{- end}}
-{{- if .Destructor}}
-	o.Context().Unregister(o)
-{{- end}}
 {{- if .CreatesChild}}
 	return {{.ChildVar}}, nil
 {{- else}}
