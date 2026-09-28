@@ -113,7 +113,7 @@ func TestHeadlessNeferWL(t *testing.T) {
 		}
 		noerr(t, d.Registry().Bind(g.Name, g.Interface, v, fs))
 		t.Logf("%s negotiated=%d", g.Interface, v)
-		defer func() { noerr(t, fs.Destroy()) }()
+		noerr(t, fs.Destroy())
 	} else {
 		t.Log("fractional scale absent")
 	}
