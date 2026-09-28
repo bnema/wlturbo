@@ -247,6 +247,12 @@ func (d *Display) SendRequest(objectID uint32, opcode uint16, args ...interface{
 
 // SendRequestWithFDs sends a request with file descriptors
 func (d *Display) SendRequestWithFDs(objectID uint32, opcode uint16, fds []int, args ...interface{}) error {
+	return d.sendRequest(objectID, opcode, fds, nil, args)
+}
+
+// sendRequest marshals a request, then runs guard and writes the message
+// under the send lock. Guard failures and marshaling errors write nothing.
+func (d *Display) sendRequest(objectID uint32, opcode uint16, fds []int, guard func() error, args []interface{}) error {
 	// Get buffer from pool
 	buf := bufferPool.Get().(*bytes.Buffer)
 	defer func() {
@@ -280,7 +286,7 @@ func (d *Display) SendRequestWithFDs(objectID uint32, opcode uint16, fds []int, 
 	copy(data[0:8], header)
 
 	// Send message with optional file descriptors
-	return d.sendmsgWithFDs(data, fds)
+	return d.sendmsgWithFDs(data, fds, guard)
 }
 
 // marshalArg marshals a single argument

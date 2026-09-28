@@ -58,20 +58,20 @@ func NewContext(display *Display) *Context {
 	}
 }
 
-// SendRequest sends a request through the context
+// SendRequest sends a request through the context. The proxy is validated
+// under the connection send lock, so no request reaches the wire after a
+// destructor for the same proxy.
 func (c *Context) SendRequest(proxy Proxy, opcode uint32, args ...interface{}) error {
-	if err := c.CheckProxy(proxy); err != nil {
-		return err
-	}
-	return c.display.SendRequest(proxy.ID(), uint16(opcode), args...)
+	return c.SendRequestWithFDs(proxy, opcode, nil, args...)
 }
 
-// SendRequestWithFDs sends a request with file descriptors through the context
+// SendRequestWithFDs sends a request with file descriptors through the context.
+// On error the FDs remain owned by the caller.
 func (c *Context) SendRequestWithFDs(proxy Proxy, opcode uint32, fds []int, args ...interface{}) error {
 	if err := c.CheckProxy(proxy); err != nil {
 		return err
 	}
-	return c.display.SendRequestWithFDs(proxy.ID(), uint16(opcode), fds, args...)
+	return c.display.sendRequest(proxy.ID(), uint16(opcode), fds, func() error { return c.CheckProxy(proxy) }, args)
 }
 
 // CheckProxy rejects stale and foreign proxies before any bytes are written.
@@ -90,21 +90,22 @@ func (c *Context) CheckProxy(proxy Proxy) error {
 }
 
 // SendDestructor sends a destructor request exactly once. The proxy is
-// unregistered atomically before sending, so concurrent callers cannot both
-// write it; the losers receive an error and nothing reaches the wire.
+// claimed (unregistered) under the connection send lock, after marshaling
+// and immediately before the write: concurrent destructors and later requests
+// on the proxy fail without writing. A marshaling error leaves the proxy
+// registered. A write error after the claim leaves the proxy unregistered;
+// such an error means the connection is broken and must be closed.
 func (c *Context) SendDestructor(proxy Proxy, opcode uint32, args ...interface{}) error {
-	if err := c.claimDestroy(proxy); err != nil {
-		return err
-	}
-	return c.display.SendRequest(proxy.ID(), uint16(opcode), args...)
+	return c.SendDestructorWithFDs(proxy, opcode, nil, args...)
 }
 
-// SendDestructorWithFDs is SendDestructor for requests carrying FDs.
+// SendDestructorWithFDs is SendDestructor for requests carrying FDs. On error
+// the FDs remain owned by the caller.
 func (c *Context) SendDestructorWithFDs(proxy Proxy, opcode uint32, fds []int, args ...interface{}) error {
-	if err := c.claimDestroy(proxy); err != nil {
+	if err := c.CheckProxy(proxy); err != nil {
 		return err
 	}
-	return c.display.SendRequestWithFDs(proxy.ID(), uint16(opcode), fds, args...)
+	return c.display.sendRequest(proxy.ID(), uint16(opcode), fds, func() error { return c.claimDestroy(proxy) }, args)
 }
 
 func (c *Context) claimDestroy(proxy Proxy) error {

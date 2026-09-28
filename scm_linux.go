@@ -134,12 +134,19 @@ func (d *Display) closePendingFDs() {
 func CloseSentFD(fd int) error { return unix.Close(fd) }
 
 // sendmsgWithFDs sends a message, attaching file descriptors when present.
-func (d *Display) sendmsgWithFDs(buf []byte, fds []int) error {
+// A non-nil guard runs under the send lock, so its checks and the write are
+// ordered atomically with every other request on the connection.
+func (d *Display) sendmsgWithFDs(buf []byte, fds []int, guard func() error) error {
 	d.sendMu.Lock()
 	defer d.sendMu.Unlock()
 
 	if d.closed.Load() {
 		return net.ErrClosed
+	}
+	if guard != nil {
+		if err := guard(); err != nil {
+			return err
+		}
 	}
 	if len(fds) == 0 {
 		n, err := d.conn.Write(buf)

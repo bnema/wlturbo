@@ -440,34 +440,87 @@ func TestConcurrentDestroySendsOnce(t *testing.T) {
 	}
 	defer d.Close()
 	receiveRequest(t, p)
-	for round := 0; round < 200; round++ {
+	const rounds, destroyers, committers = 100, 4, 4
+	for round := 0; round < rounds; round++ {
 		surface := core.NewSurface(d.Context())
 		surface.SetID(d.AllocateID())
 		d.Context().Register(surface)
-		const callers = 8
 		start := make(chan struct{})
-		results := make(chan error, callers)
-		for i := 0; i < callers; i++ {
-			go func() {
-				<-start
-				results <- surface.Destroy()
-			}()
+		destroyed := make(chan error, destroyers)
+		committed := make(chan error, committers)
+		for i := 0; i < destroyers; i++ {
+			go func() { <-start; destroyed <- surface.Destroy() }()
+		}
+		for i := 0; i < committers; i++ {
+			go func() { <-start; committed <- surface.Commit() }()
 		}
 		close(start)
-		ok := 0
-		for i := 0; i < callers; i++ {
-			if <-results == nil {
-				ok++
+		okDestroy, okCommit := 0, 0
+		for i := 0; i < destroyers; i++ {
+			if <-destroyed == nil {
+				okDestroy++
 			}
 		}
-		if ok != 1 {
-			t.Fatalf("round %d: %d destroys succeeded, want 1", round, ok)
+		for i := 0; i < committers; i++ {
+			if <-committed == nil {
+				okCommit++
+			}
 		}
-		receiveRequest(t, p)
+		if okDestroy != 1 {
+			t.Fatalf("round %d: %d destroys succeeded, want 1", round, okDestroy)
+		}
+		// Decode every frame: exactly okCommit commits (opcode 6), then one
+		// destroy (opcode 0) for this surface, and nothing after it.
+		frames := readFrames(t, p, okCommit+1)
+		for i, f := range frames {
+			if f.id != surface.ID() {
+				t.Fatalf("round %d: frame %d targets object %d", round, i, f.id)
+			}
+			last := i == len(frames)-1
+			if last && f.opcode != 0 || !last && f.opcode != 6 {
+				t.Fatalf("round %d: frame %d opcode %d (last=%v)", round, i, f.opcode, last)
+			}
+		}
 		p.SetReadDeadline(time.Now().Add(2 * time.Millisecond))
 		if n, err := p.Read(make([]byte, 8)); n != 0 {
-			t.Fatalf("round %d: extra destroy on wire (%d bytes, %v)", round, n, err)
+			t.Fatalf("round %d: request after destroy (%d bytes, %v)", round, n, err)
 		}
 		p.SetReadDeadline(time.Time{})
 	}
+}
+
+type wireFrame struct {
+	id     uint32
+	opcode uint16
+}
+
+func readFrames(t *testing.T, p *net.UnixConn, n int) []wireFrame {
+	t.Helper()
+	p.SetReadDeadline(testDeadline())
+	defer p.SetReadDeadline(time.Time{})
+	var out []wireFrame
+	var buf []byte
+	tmp := make([]byte, 4096)
+	for len(out) < n {
+		for len(buf) >= 8 {
+			size := int(binary.LittleEndian.Uint32(buf[4:8]) >> 16)
+			if size < 8 || len(buf) < size {
+				break
+			}
+			out = append(out, wireFrame{binary.LittleEndian.Uint32(buf[0:4]), uint16(binary.LittleEndian.Uint32(buf[4:8]))})
+			buf = buf[size:]
+		}
+		if len(out) >= n {
+			break
+		}
+		m, err := p.Read(tmp)
+		if err != nil {
+			t.Fatalf("read frames: got %d of %d: %v", len(out), n, err)
+		}
+		buf = append(buf, tmp[:m]...)
+	}
+	if len(out) != n || len(buf) != 0 {
+		t.Fatalf("got %d frames (+%d bytes), want %d", len(out), len(buf), n)
+	}
+	return out
 }
