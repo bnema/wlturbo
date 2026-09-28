@@ -7,7 +7,6 @@ import (
 
 // ShmPool represents a shared memory pool
 type ShmPool struct {
-	id     uint32
 	fd     int
 	size   int
 	data   []byte

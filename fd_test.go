@@ -90,6 +90,8 @@ func newFDDisplay(t *testing.T, client *net.UnixConn) (*Display, *[]int) {
 
 	d := newDisplay(client)
 	fds := []int{}
+	d.RegisterEventSignature(7, 3, "uint,fd,")
+	d.RegisterEventSignature(7, 4, "uint,")
 	d.objects.Store(uint32(7), &fdRecordingProxy{
 		BaseProxy: BaseProxy{id: 7, context: d.context},
 		fds:       &fds,
@@ -146,49 +148,19 @@ func TestDisplayFD_Single(t *testing.T) {
 	readSentinel(t, r, "single-fd-sentinel")
 }
 
-func TestDisplayFD_MultipleInOneControlMessage(t *testing.T) {
+func TestDisplayFD_ExtraDescriptorRejected(t *testing.T) {
 	client, peer := unixSocketPair(t)
-	d, received := newFDDisplay(t, client)
-
-	firstR, firstW, err := os.Pipe()
+	d, _ := newFDDisplay(t, client)
+	r, w, err := os.Pipe()
 	if err != nil {
-		t.Fatalf("pipe: %v", err)
+		t.Fatal(err)
 	}
-	defer firstR.Close()
-	secondR, secondW, err := os.Pipe()
-	if err != nil {
-		t.Fatalf("pipe: %v", err)
+	defer r.Close()
+	defer w.Close()
+	sendMessageWithFDs(t, peer, message(7, 3, nil), []int{int(w.Fd()), int(w.Fd())})
+	if err := d.Dispatch(); !errors.Is(err, ErrMalformedFrame) {
+		t.Fatalf("extra FD: %v", err)
 	}
-	defer secondR.Close()
-
-	sendMessageWithFDs(t, peer, message(7, 3, []byte{0, 0, 0, 0}),
-		[]int{int(firstW.Fd()), int(secondW.Fd())})
-	firstW.Close()
-	secondW.Close()
-
-	if err := d.Dispatch(); err != nil {
-		t.Fatalf("Dispatch: %v", err)
-	}
-
-	// A handler consumes one descriptor per fd argument, so the test drains
-	// whatever the connection still holds, in arrival order.
-	for {
-		fd, ok := d.nextFD()
-		if !ok {
-			break
-		}
-		*received = append(*received, fd)
-	}
-
-	if len(*received) != 2 {
-		t.Fatalf("received %d descriptors, want 2", len(*received))
-	}
-
-	writeSentinel(t, uintptr((*received)[0]), "first-pipe")
-	writeSentinel(t, uintptr((*received)[1]), "second-pipe")
-
-	readSentinel(t, firstR, "first-pipe")
-	readSentinel(t, secondR, "second-pipe")
 }
 
 func TestDisplayFD_EventWithoutFDsAfterOneWithFDs(t *testing.T) {
@@ -304,9 +276,9 @@ func TestDisplayFD_TruncatedControlData(t *testing.T) {
 	}
 
 	// A truncated control message must not leave descriptors queued.
-	d.fdMu.Lock()
+	d.recvMu.Lock()
 	pending := len(d.pendingFDs)
-	d.fdMu.Unlock()
+	d.recvMu.Unlock()
 	if pending != 0 {
 		t.Fatalf("%d descriptors still queued after a truncated control message", pending)
 	}
@@ -315,6 +287,7 @@ func TestDisplayFD_TruncatedControlData(t *testing.T) {
 func TestDisplayFD_UnconsumedDescriptorClosedOnShutdown(t *testing.T) {
 	client, peer := unixSocketPair(t)
 	d := newDisplay(client)
+	d.RegisterEventSignature(7, 3, "uint,fd,")
 	d.objects.Store(uint32(7), &fdIgnoringProxy{
 		BaseProxy: BaseProxy{id: 7, context: d.context},
 	})
@@ -333,12 +306,12 @@ func TestDisplayFD_UnconsumedDescriptorClosedOnShutdown(t *testing.T) {
 		t.Fatalf("Dispatch: %v", err)
 	}
 
-	// While the display still holds the descriptor the pipe stays open.
-	if err := r.SetReadDeadline(time.Now().Add(200 * time.Millisecond)); err != nil {
-		t.Fatalf("SetReadDeadline: %v", err)
+	// An ignored FD is closed at the end of the event, not at shutdown.
+	if err := r.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatal(err)
 	}
-	if _, err := r.Read(make([]byte, 1)); !errors.Is(err, os.ErrDeadlineExceeded) {
-		t.Fatalf("read with the display holding the descriptor = %v, want %v", err, os.ErrDeadlineExceeded)
+	if _, err := r.Read(make([]byte, 1)); !errors.Is(err, io.EOF) {
+		t.Fatalf("ignored FD: %v", err)
 	}
 
 	// Closing the display must release it, so the read end sees EOF.
@@ -421,6 +394,7 @@ func runFDLeakIteration(t *testing.T, devNull *os.File) {
 
 	client, peer := rawSocketPair(t)
 	d := newDisplay(client)
+	d.RegisterEventSignature(7, 3, "uint,fd,")
 	d.objects.Store(uint32(7), &fdIgnoringProxy{
 		BaseProxy: BaseProxy{id: 7, context: d.context},
 	})
@@ -448,6 +422,7 @@ func runFDLeakIteration(t *testing.T, devNull *os.File) {
 func TestDisplayFD_ParseFailureClosesQueuedDescriptor(t *testing.T) {
 	client, peer := unixSocketPair(t)
 	d := newDisplay(client)
+	d.RegisterEventSignature(7, 3, "uint,fd,")
 	d.objects.Store(uint32(7), &fdIgnoringProxy{
 		BaseProxy: BaseProxy{id: 7, context: d.context},
 	})
@@ -467,9 +442,9 @@ func TestDisplayFD_ParseFailureClosesQueuedDescriptor(t *testing.T) {
 		t.Fatalf("Dispatch error = %v, want %v", err, ErrMalformedFrame)
 	}
 
-	d.fdMu.Lock()
+	d.recvMu.Lock()
 	pending := len(d.pendingFDs)
-	d.fdMu.Unlock()
+	d.recvMu.Unlock()
 	if pending != 0 {
 		t.Fatalf("%d descriptors still queued after a malformed frame", pending)
 	}
@@ -479,5 +454,74 @@ func TestDisplayFD_ParseFailureClosesQueuedDescriptor(t *testing.T) {
 	}
 	if _, err := r.Read(make([]byte, 1)); !errors.Is(err, io.EOF) {
 		t.Fatalf("read after malformed frame = %v, want %v", err, io.EOF)
+	}
+}
+
+// Closing in a callback must not wait for the dispatch reader's state lock.
+type closingProxy struct {
+	BaseProxy
+	d        *Display
+	returned bool
+}
+
+func (p *closingProxy) EventSignature(op uint16) (string, bool) { return "fd,", op == 0 }
+func (p *closingProxy) Dispatch(*Event)                         { p.returned = p.d.Close() == nil }
+
+func TestCloseInsideHandlerClosesQueuedFDs(t *testing.T) {
+	client, peer := unixSocketPair(t)
+	d := newDisplay(client)
+	proxy := &closingProxy{BaseProxy: BaseProxy{id: 7, context: d.context}, d: d}
+	d.context.Register(proxy)
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	extra, xw, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer extra.Close()
+	// Two frames in one read; second FD remains queued while first handler runs.
+	payload := append(message(7, 0, nil), message(7, 0, nil)...)
+	sendMessageWithFDs(t, peer, payload, []int{int(w.Fd()), int(xw.Fd())})
+	w.Close()
+	xw.Close()
+	if err := d.Dispatch(); err != nil {
+		t.Fatal(err)
+	}
+	if !proxy.returned {
+		t.Fatal("Close did not return from handler")
+	}
+	for _, reader := range []*os.File{r, extra} {
+		if err := reader.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := reader.Read(make([]byte, 1)); !errors.Is(err, io.EOF) {
+			t.Fatalf("fd not closed: %v", err)
+		}
+	}
+}
+
+func TestParseFDsKeepsRightsBeforeMalformedHeader(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	defer w.Close()
+	rights := unix.UnixRights(int(w.Fd()))
+	oob := append(rights, make([]byte, unix.SizeofCmsghdr)...)
+	fds, err := parseFDs(oob)
+	if err == nil || len(fds) != 1 {
+		t.Fatalf("fds=%v err=%v", fds, err)
+	}
+	if _, err := unix.FcntlInt(uintptr(fds[0]), unix.F_GETFD, 0); err != nil {
+		t.Fatal(err)
+	}
+	for _, fd := range fds {
+		if err := unix.Close(fd); err != nil {
+			t.Fatal(err)
+		}
 	}
 }

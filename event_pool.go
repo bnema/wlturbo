@@ -27,10 +27,6 @@ type EventDispatcher struct {
 
 	// Extended handlers for object IDs >= 1024 (rare case)
 	extHandlers sync.Map
-
-	// Pre-allocated event objects to avoid allocations
-	eventCache [64]Event
-	eventIndex atomic.Uint32
 }
 
 // handlerEntry stores handlers for a specific object
@@ -164,36 +160,6 @@ type RawEvent struct {
 	ObjectID uint32
 	Opcode   uint16
 	Data     []byte
-}
-
-// DirectDispatcher provides the absolute fastest dispatch path for hot events
-type DirectDispatcher struct {
-	// Direct function pointers for the hottest paths (e.g., pointer motion)
-	pointerMotion func(surfaceX, surfaceY Fixed)
-	pointerButton func(button, state uint32)
-	keyboardKey   func(key, state uint32)
-	frameCallback func(callbackData uint32)
-
-	// Fallback to regular dispatcher
-	fallback *EventDispatcher
-}
-
-// DispatchPointerMotion dispatches pointer motion events with zero overhead
-//
-//go:inline
-func (d *DirectDispatcher) DispatchPointerMotion(surfaceX, surfaceY Fixed) {
-	if d.pointerMotion != nil {
-		d.pointerMotion(surfaceX, surfaceY)
-	}
-}
-
-// DispatchPointerButton dispatches pointer button events with zero overhead
-//
-//go:inline
-func (d *DirectDispatcher) DispatchPointerButton(button, state uint32) {
-	if d.pointerButton != nil {
-		d.pointerButton(button, state)
-	}
 }
 
 // Ensure cache line alignment for hot data structures

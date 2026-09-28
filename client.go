@@ -13,6 +13,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 )
@@ -44,13 +45,19 @@ type Object interface {
 
 // Display represents a connection to the Wayland display
 type Display struct {
-	conn      net.Conn
-	unix      *net.UnixConn // set when conn is a Unix socket, nil otherwise
-	objects   sync.Map      // map[uint32]Object
-	nextID    uint32
-	sendMu    sync.Mutex
-	recvMu    sync.Mutex
-	listeners sync.Map // map[uint32]map[uint16][]func([]byte)
+	conn       net.Conn
+	unix       *net.UnixConn // set when conn is a Unix socket, nil otherwise
+	objects    sync.Map      // map[uint32]Object
+	nextID     uint32
+	idMu       sync.Mutex
+	freeIDs    []uint32
+	retiredIDs map[uint32]bool
+	sendMu     sync.Mutex
+	recvMu     sync.Mutex
+	dispatchMu sync.Mutex // serialize readers without holding receive state across handlers
+	signatures sync.Map
+	listenerMu sync.Mutex
+	listeners  sync.Map // map[uint32]map[uint16][]func([]byte)
 
 	// High-performance event dispatcher
 	dispatcher *EventDispatcher
@@ -73,7 +80,6 @@ type Display struct {
 	readErr    error
 	maxMsgLen  uint32
 	closed     atomic.Bool
-	fdMu       sync.Mutex
 	pendingFDs []int
 }
 
@@ -103,11 +109,12 @@ func newDisplay(conn net.Conn) *Display {
 
 // Registry represents the global registry
 type Registry struct {
-	id       uint32
-	display  *Display
-	globals  map[uint32]Global
-	mu       sync.RWMutex
-	handlers map[string]GlobalHandler
+	id             uint32
+	display        *Display
+	globals        map[uint32]Global
+	mu             sync.RWMutex
+	handlers       map[string]GlobalHandler
+	removeHandlers []RegistryGlobalRemoveHandler
 }
 
 // callbackObject represents a wl_callback object
@@ -119,6 +126,12 @@ type callbackObject struct {
 func (c *callbackObject) ID() uint32 {
 	return c.id
 }
+func (c *callbackObject) EventSignature(op uint16) (string, bool) {
+	if op == 0 {
+		return "uint,", true
+	}
+	return "", false
+}
 
 // Dispatch handles callback events (opcode 0 = done)
 func (c *callbackObject) Dispatch(event *Event) {
@@ -126,6 +139,7 @@ func (c *callbackObject) Dispatch(event *Event) {
 		return
 	}
 	c.display.notifyListeners(c.id, 0, event.data)
+	c.display.context.Unregister(c)
 }
 
 // Global represents a global object
@@ -137,6 +151,16 @@ type Global struct {
 
 // GlobalHandler is called when a global is announced
 type GlobalHandler func(registry *Registry, name uint32, version uint32)
+
+// ConnectFromConn attaches to an established Wayland socket and requests its registry.
+func ConnectFromConn(conn net.Conn) (*Display, error) {
+	d := newDisplay(conn)
+	if err := d.getRegistry(); err != nil {
+		_ = d.Close()
+		return nil, fmt.Errorf("get registry: %w", err)
+	}
+	return d, nil
+}
 
 // Connect connects to the Wayland display and requests the registry.
 func Connect(socketPath string) (*Display, error) {
@@ -161,16 +185,7 @@ func Connect(socketPath string) (*Display, error) {
 		return nil, fmt.Errorf("failed to connect to Wayland: %w", err)
 	}
 
-	d := newDisplay(conn)
-
-	// Get registry
-	if err := d.getRegistry(); err != nil {
-		_ = d.Close()
-		return nil, fmt.Errorf("failed to get registry: %w", err)
-	}
-
-	// Don't do initial roundtrip here - let the caller do it after setting up handlers
-	return d, nil
+	return ConnectFromConn(conn)
 }
 
 // Close closes the display connection. It is safe to call more than once;
@@ -179,8 +194,12 @@ func (d *Display) Close() error {
 	if !d.closed.CompareAndSwap(false, true) {
 		return nil
 	}
+	d.context.closed.Store(true)
+	err := d.conn.Close()
+	d.recvMu.Lock()
 	d.closePendingFDs()
-	return d.conn.Close()
+	d.recvMu.Unlock()
+	return err
 }
 
 // Closed reports whether the connection has been closed.
@@ -200,7 +219,20 @@ func (d *Display) RegisterEventHandler(objectID uint32, opcode uint16, handler E
 
 // allocateID allocates a new object ID
 func (d *Display) allocateID() uint32 {
-	return atomic.AddUint32(&d.nextID, 1) - 1
+	d.idMu.Lock()
+	defer d.idMu.Unlock()
+	if n := len(d.freeIDs); n != 0 {
+		id := d.freeIDs[n-1]
+		d.freeIDs = d.freeIDs[:n-1]
+		delete(d.retiredIDs, id)
+		return id
+	}
+	if d.nextID == 0 || d.nextID >= 0xff000000 {
+		return 0 // exhausted; never allocate a reserved server ID
+	}
+	id := d.nextID
+	d.nextID++
+	return id
 }
 
 // AllocateID allocates a new object ID (public method)
@@ -215,6 +247,12 @@ func (d *Display) SendRequest(objectID uint32, opcode uint16, args ...interface{
 
 // SendRequestWithFDs sends a request with file descriptors
 func (d *Display) SendRequestWithFDs(objectID uint32, opcode uint16, fds []int, args ...interface{}) error {
+	return d.sendRequest(objectID, opcode, fds, nil, args)
+}
+
+// sendRequest marshals a request, then runs guard and writes the message
+// under the send lock. Guard failures and marshaling errors write nothing.
+func (d *Display) sendRequest(objectID uint32, opcode uint16, fds []int, guard func() error, args []interface{}) error {
 	// Get buffer from pool
 	buf := bufferPool.Get().(*bytes.Buffer)
 	defer func() {
@@ -235,8 +273,8 @@ func (d *Display) SendRequestWithFDs(objectID uint32, opcode uint16, fds []int, 
 
 	// Update header with actual size in bytes
 	bufLen := buf.Len()
-	if bufLen > 0xFFFF {
-		return fmt.Errorf("message too large: %d bytes", bufLen)
+	if bufLen > 0xFFFF || bufLen%4 != 0 {
+		return fmt.Errorf("invalid message size: %d bytes", bufLen)
 	}
 	size := uint32(bufLen) // Safe: checked above
 	binary.LittleEndian.PutUint32(header[0:4], objectID)
@@ -248,7 +286,7 @@ func (d *Display) SendRequestWithFDs(objectID uint32, opcode uint16, fds []int, 
 	copy(data[0:8], header)
 
 	// Send message with optional file descriptors
-	return d.sendmsgWithFDs(data, fds)
+	return d.sendmsgWithFDs(data, fds, guard)
 }
 
 // marshalArg marshals a single argument
@@ -263,7 +301,7 @@ func (d *Display) marshalArg(buf *bytes.Buffer, arg interface{}) error {
 	case string:
 		// String format: length (including null) + string + null + padding
 		strlen := len(v) + 1
-		if strlen > 0xFFFFFFFF {
+		if strlen > 0xffff-HeaderSize {
 			return fmt.Errorf("string too long: %d bytes", strlen)
 		}
 		if err := binary.Write(buf, binary.LittleEndian, uint32(strlen)); err != nil { // Safe: checked above
@@ -279,7 +317,7 @@ func (d *Display) marshalArg(buf *bytes.Buffer, arg interface{}) error {
 	case []byte:
 		// Array format: length + data + padding
 		arrlen := len(v)
-		if arrlen > 0xFFFFFFFF {
+		if arrlen > 0xffff-HeaderSize {
 			return fmt.Errorf("array too long: %d bytes", arrlen)
 		}
 		if err := binary.Write(buf, binary.LittleEndian, uint32(arrlen)); err != nil {
@@ -321,14 +359,20 @@ func (d *Display) marshalArg(buf *bytes.Buffer, arg interface{}) error {
 // Dispatch returns net.ErrClosed after Close, a typed ProtocolError for a
 // malformed frame, and io.ErrUnexpectedEOF when the peer closes mid-frame.
 func (d *Display) Dispatch() error {
+	d.dispatchMu.Lock()
+	defer d.dispatchMu.Unlock()
 	d.recvMu.Lock()
-	defer d.recvMu.Unlock()
 
 	if d.closed.Load() {
+		d.recvMu.Unlock()
 		return net.ErrClosed
 	}
 
 	frame, err := d.nextFrame()
+	d.recvMu.Unlock()
+	if d.closed.Load() {
+		return net.ErrClosed
+	}
 	if err != nil {
 		return d.fail(err)
 	}
@@ -342,8 +386,13 @@ func (d *Display) fail(err error) error {
 	if err == nil {
 		return nil
 	}
+	d.recvMu.Lock()
+	defer d.recvMu.Unlock()
 	var perr *ProtocolError
 	if errors.As(err, &perr) {
+		d.closePendingFDs()
+	}
+	if errors.Is(err, io.ErrUnexpectedEOF) {
 		d.closePendingFDs()
 	}
 	return err
@@ -376,6 +425,9 @@ func (d *Display) nextFrame() (receivedFrame, error) {
 			}
 		}
 		if err := d.fill(); err != nil {
+			if d.closed.Load() {
+				return receivedFrame{}, net.ErrClosed
+			}
 			return receivedFrame{}, err
 		}
 	}
@@ -416,40 +468,129 @@ func (d *Display) fill() error {
 	return nil
 }
 
-// dispatchFrame delivers one complete frame to the object that owns it.
+// signatureProvider is implemented by generated objects; every opcode must
+// have a known signature before any descriptor can be assigned or dispatched.
+type signatureProvider interface{ EventSignature(uint16) (string, bool) }
+
+// dispatchFrame delivers one complete frame with precisely its signature's FDs.
 func (d *Display) dispatchFrame(f receivedFrame) error {
-	if f.object == displayObjectID {
+	d.recvMu.Lock()
+	obj, ev, kind, err := d.prepareFrame(f)
+	d.recvMu.Unlock()
+	if err != nil {
+		return err
+	}
+	switch kind {
+	case 1:
 		return d.handleDisplayEvent(f.opcode, f.body)
-	}
-
-	obj, ok := d.objects.Load(f.object)
-	if !ok {
-		return &ProtocolError{
-			Kind:   "unknown_object",
-			Object: f.object,
-			Opcode: f.opcode,
-			Size:   uint32(len(f.body)) + HeaderSize,
-			Err:    ErrUnknownObject,
-		}
-	}
-
-	// Server-created objects are announced by an event on a known object.
-	d.handleServerObject(f.object, f.opcode, f.body)
-
-	if proxy, ok := obj.(Proxy); ok && proxy != nil {
-		proxy.Dispatch(&Event{
-			ProxyID: f.object,
-			Opcode:  f.opcode,
-			data:    f.body,
-			display: d,
-		})
+	case 2:
+		d.notifyListeners(f.object, f.opcode, f.body)
 		return nil
 	}
-
-	// High-performance dispatcher, then compatibility listeners.
-	d.dispatcher.Dispatch(f.object, f.opcode, f.body)
-	d.notifyListeners(f.object, f.opcode, f.body)
+	defer func() {
+		for _, fd := range ev.fds {
+			_ = fd.Close()
+		}
+		*ev = Event{}
+		eventPool.Put(ev)
+	}()
+	if proxy, ok := obj.(Proxy); ok {
+		proxy.Dispatch(ev)
+	} else {
+		d.dispatcher.Dispatch(f.object, f.opcode, f.body)
+		d.notifyListeners(f.object, f.opcode, f.body)
+	}
 	return nil
+}
+
+// prepareFrame assigns owned descriptors under recvMu, but never calls user code.
+func (d *Display) prepareFrame(f receivedFrame) (Object, *Event, uint8, error) {
+	if d.closed.Load() {
+		return nil, nil, 0, net.ErrClosed
+	}
+	if f.object == displayObjectID {
+		if len(d.pendingFDs) != 0 && len(d.rbuf) == 0 {
+			return nil, nil, 0, &ProtocolError{Kind: "extra_fd", Err: ErrMalformedFrame}
+		}
+		return nil, nil, 1, nil
+	}
+	if f.object == d.registry.id {
+		var sig string
+		switch f.opcode {
+		case 0:
+			sig = "uint,string,uint,"
+		case 1:
+			sig = "uint,"
+		default:
+			return nil, nil, 0, &ProtocolError{Kind: "unknown_opcode", Object: f.object, Opcode: f.opcode, Err: ErrUnknownOpcode}
+		}
+		if err := validateEventBody(sig, f.body); err != nil {
+			return nil, nil, 0, &ProtocolError{Kind: "malformed_payload", Object: f.object, Opcode: f.opcode, Err: err}
+		}
+		if len(d.pendingFDs) != 0 && len(d.rbuf) == 0 {
+			return nil, nil, 0, &ProtocolError{Kind: "extra_fd", Object: f.object, Opcode: f.opcode, Err: ErrMalformedFrame}
+		}
+		return nil, nil, 2, nil
+	}
+	obj, ok := d.objects.Load(f.object)
+	if !ok {
+		return nil, nil, 0, &ProtocolError{Kind: "unknown_object", Object: f.object, Opcode: f.opcode, Err: ErrUnknownObject}
+	}
+	sig, valid := "", false
+	p, isGenerated := obj.(signatureProvider)
+	if isGenerated {
+		sig, valid = p.EventSignature(f.opcode)
+	}
+	// Legacy custom proxies may declare their signatures with RegisterEventSignature.
+	if !valid && !isGenerated {
+		if v, ok := d.signatures.Load(signatureKey{f.object, f.opcode}); ok {
+			sig, valid = v.(string), true
+		}
+	}
+	if !valid {
+		return nil, nil, 0, &ProtocolError{Kind: "unknown_opcode", Object: f.object, Opcode: f.opcode, Err: ErrUnknownOpcode}
+	}
+	if err := validateEventBody(sig, f.body); err != nil {
+		return nil, nil, 0, &ProtocolError{Kind: "malformed_payload", Object: f.object, Opcode: f.opcode, Err: err}
+	}
+	count := strings.Count(sig, "fd,")
+	if len(d.pendingFDs) < count {
+		return nil, nil, 0, &ProtocolError{Kind: "missing_fd", Object: f.object, Opcode: f.opcode, Err: ErrMalformedFrame}
+	}
+	ev := eventPool.Get().(*Event)
+	*ev = Event{ProxyID: f.object, Opcode: f.opcode, data: f.body, display: d}
+	if count != 0 {
+		ev.fds = make([]*OwnedFD, count)
+		for i := range ev.fds {
+			ev.fds[i] = &OwnedFD{fd: d.pendingFDs[i]}
+		}
+		d.pendingFDs = d.pendingFDs[count:]
+	}
+	// FDs from a single recvmsg can accompany multiple coalesced frames. Once
+	// all buffered bytes have been framed, surplus descriptors are not legal.
+	if len(d.rbuf) == 0 && len(d.pendingFDs) != 0 {
+		for _, fd := range ev.fds {
+			_ = fd.Close()
+		}
+		*ev = Event{}
+		eventPool.Put(ev)
+		return nil, nil, 0, &ProtocolError{Kind: "extra_fd", Object: f.object, Opcode: f.opcode, Err: ErrMalformedFrame}
+	}
+	return obj.(Object), ev, 0, nil
+}
+
+type signatureKey struct {
+	object uint32
+	opcode uint16
+}
+
+// RegisterEventSignature defines a signature for a legacy proxy. Generated
+// proxies supply it themselves and cannot be overridden.
+func (d *Display) RegisterEventSignature(object uint32, opcode uint16, signature string) {
+	if object == 0 || object == displayObjectID {
+		return
+	}
+	d.signatures.Store(signatureKey{object, opcode}, signature)
 }
 
 // notifyListeners runs the listeners registered for an object and opcode.
@@ -466,11 +607,7 @@ func (d *Display) notifyListeners(objectID uint32, opcode uint16, body []byte) {
 	if !ok {
 		return
 	}
-	handlerSlice, ok := handlers.(*[]func([]byte))
-	if !ok || handlerSlice == nil {
-		return
-	}
-	for _, handler := range *handlerSlice {
+	for _, handler := range handlers.([]func([]byte)) {
 		if handler != nil {
 			handler(body)
 		}
@@ -481,8 +618,8 @@ func (d *Display) notifyListeners(objectID uint32, opcode uint16, body []byte) {
 func (d *Display) handleDisplayEvent(opcode uint16, data []byte) error {
 	switch opcode {
 	case 0: // error
-		if len(data) < 8 {
-			return &ProtocolError{Kind: "short_display_error", Object: displayObjectID, Opcode: opcode, Size: uint32(len(data)) + HeaderSize, Err: ErrMalformedFrame}
+		if err := validateEventBody("object,uint,string,", data); err != nil {
+			return &ProtocolError{Kind: "malformed_display_error", Err: err}
 		}
 		event := &Event{ProxyID: displayObjectID, Opcode: opcode, data: data, display: d}
 		objectID := event.Uint32()
@@ -495,11 +632,22 @@ func (d *Display) handleDisplayEvent(opcode uint16, data []byte) error {
 		return d.lastError
 
 	case 1: // delete_id
-		if len(data) < 4 {
+		if len(data) != 4 {
 			return &ProtocolError{Kind: "short_delete_id", Object: displayObjectID, Opcode: opcode, Size: uint32(len(data)) + HeaderSize, Err: ErrMalformedFrame}
 		}
 		id := binary.LittleEndian.Uint32(data[0:4])
-		d.objects.Delete(id)
+		d.idMu.Lock()
+		_, live := d.objects.Load(id)
+		if id < 2 || id >= 0xff000000 || id >= d.nextID || live || d.retiredIDs[id] {
+			d.idMu.Unlock()
+			return &ProtocolError{Kind: "invalid_delete_id", Object: id, Err: ErrMalformedFrame}
+		}
+		if d.retiredIDs == nil {
+			d.retiredIDs = make(map[uint32]bool)
+		}
+		d.retiredIDs[id] = true
+		d.freeIDs = append(d.freeIDs, id)
+		d.idMu.Unlock()
 		return nil
 
 	default:
@@ -507,55 +655,42 @@ func (d *Display) handleDisplayEvent(opcode uint16, data []byte) error {
 	}
 }
 
-// Roundtrip performs a synchronous roundtrip to the compositor
+// Roundtrip waits for one wl_display.sync callback. Concurrent event loops
+// must not call Roundtrip while another goroutine dispatches this connection.
 func (d *Display) Roundtrip() error {
-	callbackID := d.allocateID()
-	done := make(chan error, 1)
-
-	d.AddListener(callbackID, 0, func(_ []byte) {
-		d.objects.Delete(callbackID)
-		done <- nil
-	})
-
-	// Send sync request (opcode 0)
-	if err := d.SendRequest(displayObjectID, 0, callbackID); err != nil {
+	callback, err := d.Sync()
+	if err != nil {
 		return err
 	}
-
-	d.objects.Store(callbackID, &callbackObject{
-		BaseProxy: BaseProxy{
-			context: d.Context(),
-			id:      callbackID,
-		},
-		display: d,
-	})
-
-	for i := 0; i < 1000; i++ {
-		if err := d.Dispatch(); err != nil {
+	for {
+		if err = d.Dispatch(); err != nil {
 			return err
 		}
-		select {
-		case err := <-done:
-			return err
-		default:
+		if _, exists := d.objects.Load(callback.ID()); !exists {
+			return nil
 		}
 	}
-
-	return fmt.Errorf("roundtrip failed: max iterations reached")
 }
 
 // AddListener adds an event listener for an object
 func (d *Display) AddListener(objectID uint32, opcode uint16, handler func([]byte)) {
+	if handler == nil {
+		return
+	}
 	// Load or create listener map for object
 	listeners, _ := d.listeners.LoadOrStore(objectID, &sync.Map{})
 	opcodeMap := listeners.(*sync.Map)
 
-	// Load or create handlers slice for opcode
-	handlers, _ := opcodeMap.LoadOrStore(opcode, &[]func([]byte){})
-	handlerSlice := handlers.(*[]func([]byte))
-
-	// Add handler (thread-safe)
-	*handlerSlice = append(*handlerSlice, handler)
+	d.listenerMu.Lock()
+	defer d.listenerMu.Unlock()
+	var handlers []func([]byte)
+	if old, ok := opcodeMap.Load(opcode); ok {
+		handlers = old.([]func([]byte))
+	}
+	next := make([]func([]byte), len(handlers)+1)
+	copy(next, handlers)
+	next[len(handlers)] = handler
+	opcodeMap.Store(opcode, next)
 }
 
 // getRegistry gets the global registry
@@ -581,15 +716,13 @@ func (r *Registry) ID() uint32 {
 // handleGlobal handles global announcements
 func (r *Registry) handleGlobal(data []byte) {
 	if len(data) < 8 {
-		// log.Printf("wlclient: handleGlobal: data too short (%d bytes)", len(data))
 		return
 	}
 
 	name := binary.LittleEndian.Uint32(data[0:4])
 	ifaceLen := binary.LittleEndian.Uint32(data[4:8])
 
-	if len(data) < 8+int(ifaceLen)+4 {
-		// log.Printf("wlclient: handleGlobal: insufficient data for interface string (need %d, have %d)", 8+int(ifaceLen)+4, len(data))
+	if ifaceLen == 0 || uint64(ifaceLen)+12 > uint64(len(data)) || data[8+ifaceLen-1] != 0 {
 		return
 	}
 
@@ -600,14 +733,11 @@ func (r *Registry) handleGlobal(data []byte) {
 	padding := (4 - (ifaceLen % 4)) % 4
 	versionOffset := 8 + int(ifaceLen) + int(padding)
 
-	if len(data) < versionOffset+4 {
-		// log.Printf("wlclient: handleGlobal: insufficient data for version (need %d, have %d)", versionOffset+4, len(data))
+	if len(data) != versionOffset+4 {
 		return
 	}
 
 	version := binary.LittleEndian.Uint32(data[versionOffset:])
-
-	// log.Printf("wlclient: global announced: %s v%d (name=%d)", iface, version, name)
 
 	// Store global
 	r.mu.Lock()
@@ -619,15 +749,19 @@ func (r *Registry) handleGlobal(data []byte) {
 	r.mu.Unlock()
 
 	// Call specific handler if registered
-	if handler, ok := r.handlers[iface]; ok {
-		// log.Printf("wlclient: calling handler for interface %s", iface)
+	r.mu.RLock()
+	handler, specific := r.handlers[iface]
+	wildcard, all := r.handlers["*"]
+	r.mu.RUnlock()
+	if specific {
+
 		handler(r, name, version)
 	}
 
 	// Call wildcard handler if registered
-	if handler, ok := r.handlers["*"]; ok {
-		// log.Printf("wlclient: calling wildcard handler for interface %s", iface)
-		handler(r, name, version)
+	if all {
+
+		wildcard(r, name, version)
 	}
 }
 
@@ -641,11 +775,17 @@ func (r *Registry) handleGlobalRemove(data []byte) {
 
 	r.mu.Lock()
 	delete(r.globals, name)
+	handlers := append([]RegistryGlobalRemoveHandler(nil), r.removeHandlers...)
 	r.mu.Unlock()
+	for _, handler := range handlers {
+		handler.HandleRegistryGlobalRemove(RegistryGlobalRemoveEvent{Registry: r, Name: name})
+	}
 }
 
 // AddHandler adds a handler for a specific interface
 func (r *Registry) AddHandler(iface string, handler GlobalHandler) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.handlers[iface] = handler
 }
 
@@ -656,7 +796,7 @@ func (r *Registry) Bind(name uint32, iface string, version uint32, proxy Proxy) 
 		proxy.SetID(r.display.allocateID())
 	}
 
-	// Ensure proxy has a context set - CRITICAL FIX
+	// Bootstrap a generated proxy with this display's context.
 	if proxy.Context() == nil {
 		if baseProxy, ok := proxy.(*BaseProxy); ok {
 			baseProxy.SetContext(r.display.Context())
@@ -667,11 +807,17 @@ func (r *Registry) Bind(name uint32, iface string, version uint32, proxy Proxy) 
 		}
 	}
 
+	if proxy.Context() != r.display.Context() {
+		return fmt.Errorf("proxy belongs to another display")
+	}
+	if proxy.ID() == displayObjectID || proxy.ID() == r.id {
+		return fmt.Errorf("reserved object ID")
+	}
+	if old, exists := r.display.objects.Load(proxy.ID()); exists && old != proxy {
+		return fmt.Errorf("object ID %d already registered", proxy.ID())
+	}
 	// Register the proxy
 	proxy.Context().Register(proxy)
-
-	// Also register directly in display objects map
-	r.display.objects.Store(proxy.ID(), proxy)
 
 	// Send bind request (opcode 0) with proper arguments
 	if err := r.display.SendRequest(r.id, 0, name, iface, version, proxy.ID()); err != nil {
@@ -717,119 +863,4 @@ func (r *Registry) FindGlobal(iface string) (Global, bool) {
 		}
 	}
 	return Global{}, false
-}
-
-// handleServerObject creates and registers server-allocated objects from events
-func (d *Display) handleServerObject(objectID uint32, opcode uint16, body []byte) bool {
-	// Handle specific known protocols that create server objects
-	obj, ok := d.objects.Load(objectID)
-	if !ok {
-		return false
-	}
-
-	// Check if this is a known object type that creates server objects
-	switch obj.(type) {
-	case *Registry:
-		// Registry doesn't create server objects directly
-		return false
-
-	default:
-		// Check if this might be an output manager (interface zwlr_output_manager_v1)
-		if objectID == 5 { // This is likely the output manager based on your logs
-			return d.handleOutputManagerEvent(objectID, opcode, body)
-		}
-	}
-
-	return false
-}
-
-// handleOutputManagerEvent handles events from zwlr_output_manager_v1
-func (d *Display) handleOutputManagerEvent(objectID uint32, opcode uint16, body []byte) bool {
-	switch opcode {
-	case 0: // head event - creates new zwlr_output_head_v1 object
-		if len(body) < 4 {
-			return false
-		}
-
-		// Parse the new_id for the head object
-		headID := binary.LittleEndian.Uint32(body[0:4])
-
-		// Create a proper OutputHead object
-		headProxy := &OutputHead{
-			BaseProxy: BaseProxy{
-				id:      headID,
-				context: d.Context(),
-			},
-		}
-
-		// Register the new head object
-		d.objects.Store(headID, headProxy)
-		return true
-
-	case 1: // done event
-		return false
-
-	case 2: // finished event
-		return false
-	}
-
-	return false
-}
-
-// OutputHead represents a zwlr_output_head_v1 object
-type OutputHead struct {
-	BaseProxy
-	name        string
-	description string
-	width       int32
-	height      int32
-}
-
-// Dispatch handles head events
-func (h *OutputHead) Dispatch(event *Event) {
-	switch event.Opcode {
-	case 0: // name
-		h.name = event.String()
-	case 1: // description
-		h.description = event.String()
-	case 2: // physical_size
-		h.width = event.Int32()
-		h.height = event.Int32()
-	case 3: // mode (creates new mode object)
-		modeID := event.Uint32()
-		// Create mode object
-		mode := &OutputMode{
-			BaseProxy: BaseProxy{
-				id:      modeID,
-				context: h.context,
-			},
-		}
-		h.context.display.objects.Store(modeID, mode)
-	case 9: // finished
-		h.context.Unregister(h)
-	default:
-	}
-}
-
-// OutputMode represents a zwlr_output_mode_v1 object
-type OutputMode struct {
-	BaseProxy
-	width   int32
-	height  int32
-	refresh int32
-}
-
-// Dispatch handles mode events
-func (m *OutputMode) Dispatch(event *Event) {
-	switch event.Opcode {
-	case 0: // size
-		m.width = event.Int32()
-		m.height = event.Int32()
-	case 1: // refresh
-		m.refresh = event.Int32()
-	case 2: // preferred
-	case 3: // finished
-		m.context.Unregister(m)
-	default:
-	}
 }
