@@ -322,3 +322,80 @@ func TestServerChildEventsAfterOffer(t *testing.T) {
 		t.Fatalf("typed child event: %q", got)
 	}
 }
+
+func TestRegistryBootstrapAnnouncements(t *testing.T) {
+	c, p := pair(t)
+	d, e := wlturbo.ConnectFromConn(c)
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer d.Close()
+	receiveRequest(t, p)
+	var got wlturbo.Global
+	d.Registry().AddHandler("wl_compositor", func(r *wlturbo.Registry, n, v uint32) { got, _ = r.FindGlobalByName(n) })
+	name := "wl_compositor"
+	body := make([]byte, 4+4+((len(name)+1+3)&^3)+4)
+	binary.LittleEndian.PutUint32(body, 17)
+	binary.LittleEndian.PutUint32(body[4:], uint32(len(name)+1))
+	copy(body[8:], name)
+	binary.LittleEndian.PutUint32(body[len(body)-4:], 7)
+	msg := append(frame(d.Registry().ID(), 0), body...)
+	binary.LittleEndian.PutUint32(msg[4:], uint32(len(msg))<<16)
+	send(t, p, msg)
+	if e := d.Dispatch(); e != nil {
+		t.Fatal(e)
+	}
+	if got.Name != 17 || got.Interface != name || got.Version != 7 {
+		t.Fatalf("global: %+v", got)
+	}
+	send(t, p, frame(d.Registry().ID(), 1, 17))
+	if e := d.Dispatch(); e != nil {
+		t.Fatal(e)
+	}
+	if _, ok := d.Registry().FindGlobalByName(17); ok {
+		t.Fatal("global not removed")
+	}
+	send(t, p, frame(d.Registry().ID(), 2))
+	if e := d.Dispatch(); !errors.Is(e, wlturbo.ErrUnknownOpcode) {
+		t.Fatalf("unknown registry opcode: %v", e)
+	}
+}
+func TestUnclaimedFirstHandlerFDClosed(t *testing.T) {
+	c, p := pair(t)
+	d, e := wlturbo.ConnectFromConn(c)
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer d.Close()
+	receiveRequest(t, p)
+	kb := core.NewKeyboard(d.Context())
+	kb.SetID(d.AllocateID())
+	d.Context().Register(kb)
+	kb.OnKeymap(func(_ uint32, fd *wlturbo.OwnedFD, _ uint32) {
+		if fd == nil {
+			t.Fatal("missing first owner")
+		}
+	})
+	kb.OnKeymap(func(_ uint32, fd *wlturbo.OwnedFD, _ uint32) {
+		if fd != nil {
+			t.Fatal("duplicate owner")
+		}
+	})
+	r, w, e := os.Pipe()
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer r.Close()
+	send(t, p, frame(kb.ID(), 0, 1, 8), int(w.Fd()))
+	w.Close()
+	if e := d.Dispatch(); e != nil {
+		t.Fatal(e)
+	}
+	if e := r.SetReadDeadline(testDeadline()); e != nil {
+		t.Fatal(e)
+	}
+	var b [1]byte
+	if n, e := r.Read(b[:]); n != 0 || e != io.EOF {
+		t.Fatalf("unclaimed FD not closed: %d %v", n, e)
+	}
+}

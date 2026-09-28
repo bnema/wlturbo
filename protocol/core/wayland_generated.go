@@ -1432,7 +1432,9 @@ func (o *DataSource) Dispatch(event *wl.Event) {
 	case 1: // send
 		mimeType := event.String()
 		fd := event.FD()
-		defer func() { _ = fd.Close() }()
+		ownedfd := fd
+		defer ownedfd.Close()
+
 		for i, handler := range o.handlersForSend() {
 			if i > 0 {
 				fd = nil
@@ -3174,7 +3176,9 @@ func (o *Keyboard) Dispatch(event *wl.Event) {
 		format := event.Uint32()
 		fd := event.FD()
 		size := event.Uint32()
-		defer func() { _ = fd.Close() }()
+		ownedfd := fd
+		defer ownedfd.Close()
+
 		for i, handler := range o.handlersForKeymap() {
 			if i > 0 {
 				fd = nil

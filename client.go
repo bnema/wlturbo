@@ -454,6 +454,25 @@ func (d *Display) dispatchFrame(f receivedFrame) error {
 		}
 		return d.handleDisplayEvent(f.opcode, f.body)
 	}
+	if f.object == d.registry.id {
+		var sig string
+		switch f.opcode {
+		case 0:
+			sig = "uint,string,uint,"
+		case 1:
+			sig = "uint,"
+		default:
+			return &ProtocolError{Kind: "unknown_opcode", Object: f.object, Opcode: f.opcode, Err: ErrUnknownOpcode}
+		}
+		if err := validateEventBody(sig, f.body); err != nil {
+			return &ProtocolError{Kind: "malformed_payload", Object: f.object, Opcode: f.opcode, Err: err}
+		}
+		if len(d.pendingFDs) != 0 && len(d.rbuf) == 0 {
+			return &ProtocolError{Kind: "extra_fd", Object: f.object, Opcode: f.opcode, Err: ErrMalformedFrame}
+		}
+		d.notifyListeners(f.object, f.opcode, f.body)
+		return nil
+	}
 	obj, ok := d.objects.Load(f.object)
 	if !ok {
 		return &ProtocolError{Kind: "unknown_object", Object: f.object, Opcode: f.opcode, Err: ErrUnknownObject}

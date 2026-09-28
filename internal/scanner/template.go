@@ -119,7 +119,8 @@ func (o *{{$iface.GoName}}) Dispatch(event *wl.Event) {
 {{- range .DecodeLines}}
 		{{.}}
 {{- end}}
-		{{if .HasFD}}defer func(){ {{range .FDNames}}_ = {{.}}.Close(); {{end}} }(){{end}}
+        {{if .HasFD}}{{range .FDNames}}owned{{.}} := {{.}}; defer owned{{.}}.Close()
+        {{end}}{{end}}
         for i, handler := range o.{{.HandlerAccessor}}() {
             {{- if .HasFD}}
             if i > 0 { {{range .FDNames}}{{.}} = nil; {{end}} }
