@@ -773,6 +773,9 @@ func NewCompositor(ctx *wl.Context) *Compositor {
 
 // Ask the compositor to create a new surface.
 func (o *Compositor) CreateSurface() (*Surface, error) {
+	if err := o.Context().CheckProxy(o); err != nil {
+		return nil, err
+	}
 	child := &Surface{}
 	child.SetContext(o.Context())
 	child.SetID(o.Context().AllocateID())
@@ -786,6 +789,9 @@ func (o *Compositor) CreateSurface() (*Surface, error) {
 
 // Ask the compositor to create a new region.
 func (o *Compositor) CreateRegion() (*Region, error) {
+	if err := o.Context().CheckProxy(o); err != nil {
+		return nil, err
+	}
 	child := &Region{}
 	child.SetContext(o.Context())
 	child.SetID(o.Context().AllocateID())
@@ -799,6 +805,9 @@ func (o *Compositor) CreateRegion() (*Region, error) {
 
 // This request destroys the wl_compositor. This has no effect on any other objects.
 func (o *Compositor) Release() error {
+	if err := o.Context().CheckProxy(o); err != nil {
+		return err
+	}
 	if err := o.Context().SendRequest(o, 2); err != nil {
 		return err
 	}
@@ -839,6 +848,9 @@ func NewShmPool(ctx *wl.Context) *ShmPool {
 
 // Create a wl_buffer object from the pool. The buffer is created offset bytes into the pool and has width and height as specified.  The stride argument specifies the number of bytes from the beginning of one row to the beginning of the next.  The format is the pixel format of the buffer and must be one of those advertised through the wl_shm.format event. A buffer will keep a reference to the pool it was created from so it is valid to destroy the pool immediately after creating a buffer from it.
 func (o *ShmPool) CreateBuffer(offset int32, width int32, height int32, stride int32, format uint32) (*Buffer, error) {
+	if err := o.Context().CheckProxy(o); err != nil {
+		return nil, err
+	}
 	child := &Buffer{}
 	child.SetContext(o.Context())
 	child.SetID(o.Context().AllocateID())
@@ -852,6 +864,9 @@ func (o *ShmPool) CreateBuffer(offset int32, width int32, height int32, stride i
 
 // Destroy the shared memory pool. The mmapped memory will be released when all buffers that have been created from this pool are gone.
 func (o *ShmPool) Destroy() error {
+	if err := o.Context().CheckProxy(o); err != nil {
+		return err
+	}
 	if err := o.Context().SendRequest(o, 1); err != nil {
 		return err
 	}
@@ -861,6 +876,9 @@ func (o *ShmPool) Destroy() error {
 
 // This request will cause the server to remap the backing memory for the pool from the file descriptor passed when the pool was created, but using the new size.  This request can only be used to make the pool bigger. This request only changes the amount of bytes that are mmapped by the server and does not touch the file corresponding to the file descriptor passed at creation time. It is the client's responsibility to ensure that the file is at least as big as the new pool size.
 func (o *ShmPool) Resize(size int32) error {
+	if err := o.Context().CheckProxy(o); err != nil {
+		return err
+	}
 	if err := o.Context().SendRequest(o, 2, size); err != nil {
 		return err
 	}
@@ -904,6 +922,9 @@ func NewShm(ctx *wl.Context) *Shm {
 
 // Create a new wl_shm_pool object. The pool can be used to create shared memory based buffer objects.  The server will mmap size bytes of the passed file descriptor, to use as backing memory for the pool.
 func (o *Shm) CreatePool(fd int, size int32) (*ShmPool, error) {
+	if err := o.Context().CheckProxy(o); err != nil {
+		return nil, err
+	}
 	child := &ShmPool{}
 	child.SetContext(o.Context())
 	child.SetID(o.Context().AllocateID())
@@ -918,6 +939,9 @@ func (o *Shm) CreatePool(fd int, size int32) (*ShmPool, error) {
 
 // Using this request a client can tell the server that it is not going to use the shm object anymore. Objects created via this interface remain unaffected.
 func (o *Shm) Release() error {
+	if err := o.Context().CheckProxy(o); err != nil {
+		return err
+	}
 	if err := o.Context().SendRequest(o, 1); err != nil {
 		return err
 	}
@@ -993,6 +1017,9 @@ func NewBuffer(ctx *wl.Context) *Buffer {
 
 // Destroy a buffer. If and how you need to release the backing storage is defined by the buffer factory interface. For possible side-effects to a surface, see wl_surface.attach.
 func (o *Buffer) Destroy() error {
+	if err := o.Context().CheckProxy(o); err != nil {
+		return err
+	}
 	if err := o.Context().SendRequest(o, 0); err != nil {
 		return err
 	}
@@ -1069,6 +1096,9 @@ func NewDataOffer(ctx *wl.Context) *DataOffer {
 
 // Indicate that the client can accept the given mime type, or NULL for not accepted. For objects of version 2 or older, this request is used by the client to give feedback whether the client can receive the given mime type, or NULL if none is accepted; the feedback does not determine whether the drag-and-drop operation succeeds or not. For objects of version 3 or newer, this request determines the final result of the drag-and-drop operation. If the end result is that no mime types were accepted, the drag-and-drop operation will be cancelled and the corresponding drag source will receive wl_data_source.cancelled. Clients may still use this event in conjunction with wl_data_source.action for feedback.
 func (o *DataOffer) Accept(serial uint32, mimeType string) error {
+	if err := o.Context().CheckProxy(o); err != nil {
+		return err
+	}
 	if err := o.Context().SendRequest(o, 0, serial, mimeType); err != nil {
 		return err
 	}
@@ -1077,6 +1107,9 @@ func (o *DataOffer) Accept(serial uint32, mimeType string) error {
 
 // To transfer the offered data, the client issues this request and indicates the mime type it wants to receive.  The transfer happens through the passed file descriptor (typically created with the pipe system call).  The source client writes the data in the mime type representation requested and then closes the file descriptor. The receiving client reads from the read end of the pipe until EOF and then closes its end, at which point the transfer is complete. This request may happen multiple times for different mime types, both before and after wl_data_device.drop. Drag-and-drop destination clients may preemptively fetch data or examine it more closely to determine acceptance.
 func (o *DataOffer) Receive(mimeType string, fd int) error {
+	if err := o.Context().CheckProxy(o); err != nil {
+		return err
+	}
 	if err := o.Context().SendRequestWithFDs(o, 1, []int{fd}, mimeType, uintptr(fd)); err != nil {
 		return err
 	}
@@ -1086,6 +1119,9 @@ func (o *DataOffer) Receive(mimeType string, fd int) error {
 
 // Destroy the data offer.
 func (o *DataOffer) Destroy() error {
+	if err := o.Context().CheckProxy(o); err != nil {
+		return err
+	}
 	if err := o.Context().SendRequest(o, 2); err != nil {
 		return err
 	}
@@ -1095,6 +1131,9 @@ func (o *DataOffer) Destroy() error {
 
 // Notifies the compositor that the drag destination successfully finished the drag-and-drop operation. Upon receiving this request, the compositor will emit wl_data_source.dnd_finished on the drag source client. It is a client error to perform other requests than wl_data_offer.destroy after this one. It is also an error to perform this request after a NULL mime type has been set in wl_data_offer.accept or no action was received through wl_data_offer.action. If wl_data_offer.finish request is received for a non drag and drop operation, the invalid_finish protocol error is raised.
 func (o *DataOffer) Finish() error {
+	if err := o.Context().CheckProxy(o); err != nil {
+		return err
+	}
 	if err := o.Context().SendRequest(o, 3); err != nil {
 		return err
 	}
@@ -1103,6 +1142,9 @@ func (o *DataOffer) Finish() error {
 
 // Sets the actions that the destination side client supports for this operation. This request may trigger the emission of wl_data_source.action and wl_data_offer.action events if the compositor needs to change the selected action. This request can be called multiple times throughout the drag-and-drop operation, typically in response to wl_data_device.enter or wl_data_device.motion events. This request determines the final result of the drag-and-drop operation. If the end result is that no action is accepted, the drag source will receive wl_data_source.cancelled. The dnd_actions argument must contain only values expressed in the wl_data_device_manager.dnd_actions enum, and the preferred_action argument must only contain one of those values set, otherwise it will result in a protocol error. While managing an "ask" action, the destination drag-and-drop client may perform further wl_data_offer.receive requests, and is expected to perform one last wl_data_offer.set_actions request with a preferred action other than "ask" (and optionally wl_data_offer.accept) before requesting wl_data_offer.finish, in order to convey the action selected by the user. If the preferred action is not in the wl_data_offer.source_actions mask, an error will be raised. If the "ask" action is dismissed (e.g. user cancellation), the client is expected to perform wl_data_offer.destroy right away. This request can only be made on drag-and-drop offers, a protocol error will be raised otherwise.
 func (o *DataOffer) SetActions(dndActions uint32, preferredAction uint32) error {
+	if err := o.Context().CheckProxy(o); err != nil {
+		return err
+	}
 	if err := o.Context().SendRequest(o, 4, dndActions, preferredAction); err != nil {
 		return err
 	}
@@ -1244,6 +1286,9 @@ func NewDataSource(ctx *wl.Context) *DataSource {
 
 // This request adds a mime type to the set of mime types advertised to targets.  Can be called several times to offer multiple types.
 func (o *DataSource) Offer(mimeType string) error {
+	if err := o.Context().CheckProxy(o); err != nil {
+		return err
+	}
 	if err := o.Context().SendRequest(o, 0, mimeType); err != nil {
 		return err
 	}
@@ -1252,6 +1297,9 @@ func (o *DataSource) Offer(mimeType string) error {
 
 // Destroy the data source.
 func (o *DataSource) Destroy() error {
+	if err := o.Context().CheckProxy(o); err != nil {
+		return err
+	}
 	if err := o.Context().SendRequest(o, 1); err != nil {
 		return err
 	}
@@ -1261,6 +1309,9 @@ func (o *DataSource) Destroy() error {
 
 // Sets the actions that the source side client supports for this operation. This request may trigger wl_data_source.action and wl_data_offer.action events if the compositor needs to change the selected action. The dnd_actions argument must contain only values expressed in the wl_data_device_manager.dnd_actions enum, otherwise it will result in a protocol error. This request must be made once only, and can only be made on sources used in drag-and-drop, so it must be performed before wl_data_device.start_drag. Attempting to use the source other than for drag-and-drop will raise a protocol error.
 func (o *DataSource) SetActions(dndActions uint32) error {
+	if err := o.Context().CheckProxy(o); err != nil {
+		return err
+	}
 	if err := o.Context().SendRequest(o, 2, dndActions); err != nil {
 		return err
 	}
@@ -1497,6 +1548,9 @@ func NewDataDevice(ctx *wl.Context) *DataDevice {
 
 // This request asks the compositor to start a drag-and-drop operation on behalf of the client. The source argument is the data source that provides the data for the eventual data transfer. If source is NULL, enter, leave and motion events are sent only to the client that initiated the drag and the client is expected to handle the data passing internally. If source is destroyed, the drag-and-drop session will be cancelled. The origin surface is the surface where the drag originates and the client must have an active implicit grab that matches the serial. The icon surface is an optional (can be NULL) surface that provides an icon to be moved around with the cursor.  Initially, the top-left corner of the icon surface is placed at the cursor hotspot, but subsequent wl_surface.offset requests can move the relative position. Attach requests must be confirmed with wl_surface.commit as usual. The icon surface is given the role of a drag-and-drop icon. If the icon surface already has another role, it raises a protocol error. The input region is ignored for wl_surfaces with the role of a drag-and-drop icon. The given source may not be used in any further set_selection or start_drag requests. Attempting to reuse a previously-used source may send a used_source error.
 func (o *DataDevice) StartDrag(source *DataSource, origin *Surface, icon *Surface, serial uint32) error {
+	if err := o.Context().CheckProxy(o); err != nil {
+		return err
+	}
 	var arg0 wl.Object
 	if source != nil {
 		arg0 = source
@@ -1517,6 +1571,9 @@ func (o *DataDevice) StartDrag(source *DataSource, origin *Surface, icon *Surfac
 
 // This request asks the compositor to set the selection to the data from the source on behalf of the client. To unset the selection, set the source to NULL. The given source may not be used in any further set_selection or start_drag requests. Attempting to reuse a previously-used source may send a used_source error.
 func (o *DataDevice) SetSelection(source *DataSource, serial uint32) error {
+	if err := o.Context().CheckProxy(o); err != nil {
+		return err
+	}
 	var arg0 wl.Object
 	if source != nil {
 		arg0 = source
@@ -1529,6 +1586,9 @@ func (o *DataDevice) SetSelection(source *DataSource, serial uint32) error {
 
 // This request destroys the data device.
 func (o *DataDevice) Release() error {
+	if err := o.Context().CheckProxy(o); err != nil {
+		return err
+	}
 	if err := o.Context().SendRequest(o, 2); err != nil {
 		return err
 	}
@@ -1763,6 +1823,9 @@ func NewDataDeviceManager(ctx *wl.Context) *DataDeviceManager {
 
 // Create a new data source.
 func (o *DataDeviceManager) CreateDataSource() (*DataSource, error) {
+	if err := o.Context().CheckProxy(o); err != nil {
+		return nil, err
+	}
 	child := &DataSource{}
 	child.SetContext(o.Context())
 	child.SetID(o.Context().AllocateID())
@@ -1776,6 +1839,9 @@ func (o *DataDeviceManager) CreateDataSource() (*DataSource, error) {
 
 // Create a new data device for a given seat.
 func (o *DataDeviceManager) GetDataDevice(seat *Seat) (*DataDevice, error) {
+	if err := o.Context().CheckProxy(o); err != nil {
+		return nil, err
+	}
 	var arg1 wl.Object
 	if seat != nil {
 		arg1 = seat
@@ -1793,6 +1859,9 @@ func (o *DataDeviceManager) GetDataDevice(seat *Seat) (*DataDevice, error) {
 
 // This request destroys the wl_data_device_manager. This has no effect on any other objects.
 func (o *DataDeviceManager) Release() error {
+	if err := o.Context().CheckProxy(o); err != nil {
+		return err
+	}
 	if err := o.Context().SendRequest(o, 2); err != nil {
 		return err
 	}
@@ -1833,6 +1902,9 @@ func NewShell(ctx *wl.Context) *Shell {
 
 // Create a shell surface for an existing surface. This gives the wl_surface the role of a shell surface. If the wl_surface already has another role, it raises a protocol error. Only one shell surface can be associated with a given surface.
 func (o *Shell) GetShellSurface(surface *Surface) (*ShellSurface, error) {
+	if err := o.Context().CheckProxy(o); err != nil {
+		return nil, err
+	}
 	var arg1 wl.Object
 	if surface != nil {
 		arg1 = surface
@@ -1887,6 +1959,9 @@ func NewShellSurface(ctx *wl.Context) *ShellSurface {
 
 // A client must respond to a ping event with a pong request or the client may be deemed unresponsive.
 func (o *ShellSurface) Pong(serial uint32) error {
+	if err := o.Context().CheckProxy(o); err != nil {
+		return err
+	}
 	if err := o.Context().SendRequest(o, 0, serial); err != nil {
 		return err
 	}
@@ -1895,6 +1970,9 @@ func (o *ShellSurface) Pong(serial uint32) error {
 
 // Start a pointer-driven move of the surface. This request must be used in response to a button press event. The server may ignore move requests depending on the state of the surface (e.g. fullscreen or maximized).
 func (o *ShellSurface) Move(seat *Seat, serial uint32) error {
+	if err := o.Context().CheckProxy(o); err != nil {
+		return err
+	}
 	var arg0 wl.Object
 	if seat != nil {
 		arg0 = seat
@@ -1907,6 +1985,9 @@ func (o *ShellSurface) Move(seat *Seat, serial uint32) error {
 
 // Start a pointer-driven resizing of the surface. This request must be used in response to a button press event. The server may ignore resize requests depending on the state of the surface (e.g. fullscreen or maximized).
 func (o *ShellSurface) Resize(seat *Seat, serial uint32, edges uint32) error {
+	if err := o.Context().CheckProxy(o); err != nil {
+		return err
+	}
 	var arg0 wl.Object
 	if seat != nil {
 		arg0 = seat
@@ -1919,6 +2000,9 @@ func (o *ShellSurface) Resize(seat *Seat, serial uint32, edges uint32) error {
 
 // Map the surface as a toplevel surface. A toplevel surface is not fullscreen, maximized or transient.
 func (o *ShellSurface) SetToplevel() error {
+	if err := o.Context().CheckProxy(o); err != nil {
+		return err
+	}
 	if err := o.Context().SendRequest(o, 3); err != nil {
 		return err
 	}
@@ -1927,6 +2011,9 @@ func (o *ShellSurface) SetToplevel() error {
 
 // Map the surface relative to an existing surface. The x and y arguments specify the location of the upper left corner of the surface relative to the upper left corner of the parent surface, in surface-local coordinates. The flags argument controls details of the transient behaviour.
 func (o *ShellSurface) SetTransient(parent *Surface, x int32, y int32, flags uint32) error {
+	if err := o.Context().CheckProxy(o); err != nil {
+		return err
+	}
 	var arg0 wl.Object
 	if parent != nil {
 		arg0 = parent
@@ -1939,6 +2026,9 @@ func (o *ShellSurface) SetTransient(parent *Surface, x int32, y int32, flags uin
 
 // Map the surface as a fullscreen surface. If an output parameter is given then the surface will be made fullscreen on that output. If the client does not specify the output then the compositor will apply its policy - usually choosing the output on which the surface has the biggest surface area. The client may specify a method to resolve a size conflict between the output size and the surface size - this is provided through the method parameter. The framerate parameter is used only when the method is set to "driver", to indicate the preferred framerate. A value of 0 indicates that the client does not care about framerate.  The framerate is specified in mHz, that is framerate of 60000 is 60Hz. A method of "scale" or "driver" implies a scaling operation of the surface, either via a direct scaling operation or a change of the output mode. This will override any kind of output scaling, so that mapping a surface with a buffer size equal to the mode can fill the screen independent of buffer_scale. A method of "fill" means we don't scale up the buffer, however any output scale is applied. This means that you may run into an edge case where the application maps a buffer with the same size of the output mode but buffer_scale 1 (thus making a surface larger than the output). In this case it is allowed to downscale the results to fit the screen. The compositor must reply to this request with a configure event with the dimensions for the output on which the surface will be made fullscreen.
 func (o *ShellSurface) SetFullscreen(method uint32, framerate uint32, output *Output) error {
+	if err := o.Context().CheckProxy(o); err != nil {
+		return err
+	}
 	var arg2 wl.Object
 	if output != nil {
 		arg2 = output
@@ -1951,6 +2041,9 @@ func (o *ShellSurface) SetFullscreen(method uint32, framerate uint32, output *Ou
 
 // Map the surface as a popup. A popup surface is a transient surface with an added pointer grab. An existing implicit grab will be changed to owner-events mode, and the popup grab will continue after the implicit grab ends (i.e. releasing the mouse button does not cause the popup to be unmapped). The popup grab continues until the window is destroyed or a mouse button is pressed in any other client's window. A click in any of the client's surfaces is reported as normal, however, clicks in other clients' surfaces will be discarded and trigger the callback. The x and y arguments specify the location of the upper left corner of the surface relative to the upper left corner of the parent surface, in surface-local coordinates.
 func (o *ShellSurface) SetPopup(seat *Seat, serial uint32, parent *Surface, x int32, y int32, flags uint32) error {
+	if err := o.Context().CheckProxy(o); err != nil {
+		return err
+	}
 	var arg0 wl.Object
 	if seat != nil {
 		arg0 = seat
@@ -1967,6 +2060,9 @@ func (o *ShellSurface) SetPopup(seat *Seat, serial uint32, parent *Surface, x in
 
 // Map the surface as a maximized surface. If an output parameter is given then the surface will be maximized on that output. If the client does not specify the output then the compositor will apply its policy - usually choosing the output on which the surface has the biggest surface area. The compositor will reply with a configure event telling the expected new surface size. The operation is completed on the next buffer attach to this surface. A maximized surface typically fills the entire output it is bound to, except for desktop elements such as panels. This is the main difference between a maximized shell surface and a fullscreen shell surface. The details depend on the compositor implementation.
 func (o *ShellSurface) SetMaximized(output *Output) error {
+	if err := o.Context().CheckProxy(o); err != nil {
+		return err
+	}
 	var arg0 wl.Object
 	if output != nil {
 		arg0 = output
@@ -1979,6 +2075,9 @@ func (o *ShellSurface) SetMaximized(output *Output) error {
 
 // Set a short title for the surface. This string may be used to identify the surface in a task bar, window list, or other user interface elements provided by the compositor. The string must be encoded in UTF-8.
 func (o *ShellSurface) SetTitle(title string) error {
+	if err := o.Context().CheckProxy(o); err != nil {
+		return err
+	}
 	if err := o.Context().SendRequest(o, 8, title); err != nil {
 		return err
 	}
@@ -1987,6 +2086,9 @@ func (o *ShellSurface) SetTitle(title string) error {
 
 // Set a class for the surface. The surface class identifies the general class of applications to which the surface belongs. A common convention is to use the file name (or the full path if it is a non-standard location) of the application's .desktop file as the class.
 func (o *ShellSurface) SetClass(class string) error {
+	if err := o.Context().CheckProxy(o); err != nil {
+		return err
+	}
 	if err := o.Context().SendRequest(o, 9, class); err != nil {
 		return err
 	}
@@ -2127,6 +2229,9 @@ func NewSurface(ctx *wl.Context) *Surface {
 
 // Deletes the surface and invalidates its object ID.
 func (o *Surface) Destroy() error {
+	if err := o.Context().CheckProxy(o); err != nil {
+		return err
+	}
 	if err := o.Context().SendRequest(o, 0); err != nil {
 		return err
 	}
@@ -2136,6 +2241,9 @@ func (o *Surface) Destroy() error {
 
 // Set a buffer as the content of this surface. The new size of the surface is calculated based on the buffer size transformed by the inverse buffer_transform and the inverse buffer_scale. This means that at commit time the supplied buffer size must be an integer multiple of the buffer_scale. If that's not the case, an invalid_size error is sent. The x and y arguments specify the location of the new pending buffer's upper left corner, relative to the current buffer's upper left corner, in surface-local coordinates. In other words, the x and y, combined with the new surface size define in which directions the surface's size changes. Setting anything other than 0 as x and y arguments is discouraged, and should instead be replaced with using the separate wl_surface.offset request. When the bound wl_surface version is 5 or higher, passing any non-zero x or y is a protocol violation, and will result in an 'invalid_offset' error being raised. The x and y arguments are ignored and do not change the pending state. To achieve equivalent semantics, use wl_surface.offset. Surface contents are double-buffered state, see wl_surface.commit. The initial surface contents are void; there is no content. wl_surface.attach assigns the given wl_buffer as the pending wl_buffer. wl_surface.commit makes the pending wl_buffer the new surface contents, and the size of the surface becomes the size calculated from the wl_buffer, as described above. After commit, there is no pending buffer until the next attach. Committing a pending wl_buffer allows the compositor to read the pixels in the wl_buffer. The compositor may access the pixels at any time after the wl_surface.commit request. When the compositor will not access the pixels anymore, it will send the wl_buffer.release event. Only after receiving wl_buffer.release, the client may reuse the wl_buffer. A wl_buffer that has been attached and then replaced by another attach instead of committed will not receive a release event, and is not used by the compositor. If a pending wl_buffer has been committed to more than one wl_surface, the delivery of wl_buffer.release events becomes undefined. A well behaved client should not rely on wl_buffer.release events in this case. Instead, clients hitting this case should use wl_surface.get_release or use a protocol extension providing per-commit release notifications (if none of these options are available, a fallback can be implemented by creating multiple wl_buffer objects from the same backing storage). Destroying the wl_buffer after wl_buffer.release does not change the surface contents. Destroying the wl_buffer before wl_buffer.release is allowed as long as the underlying buffer storage isn't re-used (this can happen e.g. on client process termination). However, if the client destroys the wl_buffer before receiving the wl_buffer.release event and mutates the underlying buffer storage, the surface contents become undefined immediately. If wl_surface.attach is sent with a NULL wl_buffer, the following wl_surface.commit will remove the surface content. If a pending wl_buffer has been destroyed, the result is not specified. Many compositors are known to remove the surface content on the following wl_surface.commit, but this behaviour is not universal. Clients seeking to maximise compatibility should not destroy pending buffers and should ensure that they explicitly remove content from surfaces, even after destroying buffers.
 func (o *Surface) Attach(buffer *Buffer, x int32, y int32) error {
+	if err := o.Context().CheckProxy(o); err != nil {
+		return err
+	}
 	var arg0 wl.Object
 	if buffer != nil {
 		arg0 = buffer
@@ -2148,6 +2256,9 @@ func (o *Surface) Attach(buffer *Buffer, x int32, y int32) error {
 
 // This request is used to describe the regions where the pending buffer is different from the current surface contents, and where the surface therefore needs to be repainted. The compositor ignores the parts of the damage that fall outside of the surface. Damage is double-buffered state, see wl_surface.commit. The damage rectangle is specified in surface-local coordinates, where x and y specify the upper left corner of the damage rectangle. The initial value for pending damage is empty: no damage. wl_surface.damage adds pending damage: the new pending damage is the union of old pending damage and the given rectangle. wl_surface.commit assigns pending damage as the current damage, and clears pending damage. The server will clear the current damage as it repaints the surface. Note! New clients should not use this request. Instead damage can be posted with wl_surface.damage_buffer which uses buffer coordinates instead of surface coordinates.
 func (o *Surface) Damage(x int32, y int32, width int32, height int32) error {
+	if err := o.Context().CheckProxy(o); err != nil {
+		return err
+	}
 	if err := o.Context().SendRequest(o, 2, x, y, width, height); err != nil {
 		return err
 	}
@@ -2156,6 +2267,9 @@ func (o *Surface) Damage(x int32, y int32, width int32, height int32) error {
 
 // Request a notification when it is a good time to start drawing a new frame, by creating a frame callback. This is useful for throttling redrawing operations, and driving animations. When a client is animating on a wl_surface, it can use the 'frame' request to get notified when it is a good time to draw and commit the next frame of animation. If the client commits an update earlier than that, it is likely that some updates will not make it to the display, and the client is wasting resources by drawing too often. The frame request will take effect on the next wl_surface.commit. The notification will only be posted for one frame unless requested again. For a wl_surface, the notifications are posted in the order the frame requests were committed. The server must send the notifications so that a client will not send excessive updates, while still allowing the highest possible update rate for clients that wait for the reply before drawing again. The server should give some time for the client to draw and commit after sending the frame callback events to let it hit the next output refresh. A server should avoid signaling the frame callbacks if the surface is not visible in any way, e.g. the surface is off-screen, or completely obscured by other opaque surfaces. The object returned by this request will be destroyed by the compositor after the callback is fired and as such the client must not attempt to use it after that point. The callback_data passed in the callback is the current time, in milliseconds, with an undefined base.
 func (o *Surface) Frame() (*Callback, error) {
+	if err := o.Context().CheckProxy(o); err != nil {
+		return nil, err
+	}
 	child := &Callback{}
 	child.SetContext(o.Context())
 	child.SetID(o.Context().AllocateID())
@@ -2169,6 +2283,9 @@ func (o *Surface) Frame() (*Callback, error) {
 
 // This request sets the region of the surface that contains opaque content. The opaque region is an optimization hint for the compositor that lets it optimize the redrawing of content behind opaque regions.  Setting an opaque region is not required for correct behaviour, but marking transparent content as opaque will result in repaint artifacts. The opaque region is specified in surface-local coordinates. The compositor ignores the parts of the opaque region that fall outside of the surface. Opaque region is double-buffered state, see wl_surface.commit. wl_surface.set_opaque_region changes the pending opaque region. wl_surface.commit copies the pending region to the current region. Otherwise, the pending and current regions are never changed. The initial value for an opaque region is empty. Setting the pending opaque region has copy semantics, and the wl_region object can be destroyed immediately. A NULL wl_region causes the pending opaque region to be set to empty.
 func (o *Surface) SetOpaqueRegion(region *Region) error {
+	if err := o.Context().CheckProxy(o); err != nil {
+		return err
+	}
 	var arg0 wl.Object
 	if region != nil {
 		arg0 = region
@@ -2181,6 +2298,9 @@ func (o *Surface) SetOpaqueRegion(region *Region) error {
 
 // This request sets the region of the surface that can receive pointer and touch events. Input events happening outside of this region will try the next surface in the server surface stack. The compositor ignores the parts of the input region that fall outside of the surface. The input region is specified in surface-local coordinates. Input region is double-buffered state, see wl_surface.commit. wl_surface.set_input_region changes the pending input region. wl_surface.commit copies the pending region to the current region. Otherwise the pending and current regions are never changed, except cursor and icon surfaces are special cases, see wl_pointer.set_cursor and wl_data_device.start_drag. The initial value for an input region is infinite. That means the whole surface will accept input. Setting the pending input region has copy semantics, and the wl_region object can be destroyed immediately. A NULL wl_region causes the input region to be set to infinite.
 func (o *Surface) SetInputRegion(region *Region) error {
+	if err := o.Context().CheckProxy(o); err != nil {
+		return err
+	}
 	var arg0 wl.Object
 	if region != nil {
 		arg0 = region
@@ -2193,6 +2313,9 @@ func (o *Surface) SetInputRegion(region *Region) error {
 
 // Surface state (input, opaque, and damage regions, attached buffers, etc.) is double-buffered. Protocol requests modify the pending state, as opposed to the active state in use by the compositor. All requests that need a commit to become effective are documented to affect double-buffered state. Other interfaces may add further double-buffered surface state. A commit request atomically creates a Content Update (CU) from the pending state, even if the pending state has not been touched. The content update is placed at the end of a per-surface queue until it becomes active. After commit, the new pending state is as documented for each related request. A CU is either a Desync Content Update (DCU) or a Sync Content Update (SCU). If the surface is effectively synchronized at the commit request, it is a SCU, otherwise a DCU. When a surface transitions from effectively synchronized to effectively desynchronized, all SCUs in its queue which are not reachable by any DCU become DCUs and dependency edges from outside the queue to these CUs are removed. See wl_subsurface for the definition of 'effectively synchronized' and 'effectively desynchronized'. When a CU is placed in the queue, the CU has a dependency on the CU in front of it and to the SCU at end of the queue of every direct child surface if that SCU exists and does not have another dependent. This can form a directed acyclic graph of CUs with dependencies as edges. In addition to surface state, the CU can have constraints that must be satisfied before it can be applied. Other interfaces may add CU constraints. All DCUs which do not have a SCU in front of themselves in their queue, are candidates. If the graph that's reachable by a candidate does not have any unsatisfied constraints, the entire graph must be applied atomically. When a CU is applied, the wl_buffer is applied before all other state. This means that all coordinates in double-buffered state are relative to the newly attached wl_buffers, except for wl_surface.attach itself. If there is no newly attached wl_buffer, the coordinates are relative to the previous content update.
 func (o *Surface) Commit() error {
+	if err := o.Context().CheckProxy(o); err != nil {
+		return err
+	}
 	if err := o.Context().SendRequest(o, 6); err != nil {
 		return err
 	}
@@ -2201,6 +2324,9 @@ func (o *Surface) Commit() error {
 
 // This request sets the transformation that the client has already applied to the content of the buffer. The accepted values for the transform parameter are the values for wl_output.transform. The compositor applies the inverse of this transformation whenever it uses the buffer contents. Buffer transform is double-buffered state, see wl_surface.commit. A newly created surface has its buffer transformation set to normal. wl_surface.set_buffer_transform changes the pending buffer transformation. wl_surface.commit copies the pending buffer transformation to the current one. Otherwise, the pending and current values are never changed. The purpose of this request is to allow clients to render content according to the output transform, thus permitting the compositor to use certain optimizations even if the display is rotated. Using hardware overlays and scanning out a client buffer for fullscreen surfaces are examples of such optimizations. Those optimizations are highly dependent on the compositor implementation, so the use of this request should be considered on a case-by-case basis. Note that if the transform value includes 90 or 270 degree rotation, the width of the buffer will become the surface height and the height of the buffer will become the surface width. If transform is not one of the values from the wl_output.transform enum the invalid_transform protocol error is raised.
 func (o *Surface) SetBufferTransform(transform int32) error {
+	if err := o.Context().CheckProxy(o); err != nil {
+		return err
+	}
 	if err := o.Context().SendRequest(o, 7, transform); err != nil {
 		return err
 	}
@@ -2209,6 +2335,9 @@ func (o *Surface) SetBufferTransform(transform int32) error {
 
 // This request sets an optional scaling factor on how the compositor interprets the contents of the buffer attached to the window. Buffer scale is double-buffered state, see wl_surface.commit. A newly created surface has its buffer scale set to 1. wl_surface.set_buffer_scale changes the pending buffer scale. wl_surface.commit copies the pending buffer scale to the current one. Otherwise, the pending and current values are never changed. The purpose of this request is to allow clients to supply higher resolution buffer data for use on high resolution outputs. It is intended that you pick the same buffer scale as the scale of the output that the surface is displayed on. This means the compositor can avoid scaling when rendering the surface on that output. Note that if the scale is larger than 1, then you have to attach a buffer that is larger (by a factor of scale in each dimension) than the desired surface size. If scale is not greater than 0 the invalid_scale protocol error is raised.
 func (o *Surface) SetBufferScale(scale int32) error {
+	if err := o.Context().CheckProxy(o); err != nil {
+		return err
+	}
 	if err := o.Context().SendRequest(o, 8, scale); err != nil {
 		return err
 	}
@@ -2217,6 +2346,9 @@ func (o *Surface) SetBufferScale(scale int32) error {
 
 // This request is used to describe the regions where the pending buffer is different from the current surface contents, and where the surface therefore needs to be repainted. The compositor ignores the parts of the damage that fall outside of the surface. Damage is double-buffered state, see wl_surface.commit. The damage rectangle is specified in buffer coordinates, where x and y specify the upper left corner of the damage rectangle. The initial value for pending damage is empty: no damage. wl_surface.damage_buffer adds pending damage: the new pending damage is the union of old pending damage and the given rectangle. wl_surface.commit assigns pending damage as the current damage, and clears pending damage. The server will clear the current damage as it repaints the surface. This request differs from wl_surface.damage in only one way - it takes damage in buffer coordinates instead of surface-local coordinates. While this generally is more intuitive than surface coordinates, it is especially desirable when using wp_viewport or when a drawing library (like EGL) is unaware of buffer scale and buffer transform. Note: Because buffer transformation changes and damage requests may be interleaved in the protocol stream, it is impossible to determine the actual mapping between surface and buffer damage until wl_surface.commit time. Therefore, compositors wishing to take both kinds of damage into account will have to accumulate damage from the two requests separately and only transform from one to the other after receiving the wl_surface.commit.
 func (o *Surface) DamageBuffer(x int32, y int32, width int32, height int32) error {
+	if err := o.Context().CheckProxy(o); err != nil {
+		return err
+	}
 	if err := o.Context().SendRequest(o, 9, x, y, width, height); err != nil {
 		return err
 	}
@@ -2225,6 +2357,9 @@ func (o *Surface) DamageBuffer(x int32, y int32, width int32, height int32) erro
 
 // The x and y arguments specify the location of the new pending buffer's upper left corner, relative to the current buffer's upper left corner, in surface-local coordinates. In other words, the x and y, combined with the new surface size define in which directions the surface's size changes. The exact semantics of wl_surface.offset are role-specific. Refer to the documentation of specific roles for more information. Surface location offset is double-buffered state, see wl_surface.commit. This request is semantically equivalent to and the replaces the x and y arguments in the wl_surface.attach request in wl_surface versions prior to 5. See wl_surface.attach for details.
 func (o *Surface) Offset(x int32, y int32) error {
+	if err := o.Context().CheckProxy(o); err != nil {
+		return err
+	}
 	if err := o.Context().SendRequest(o, 10, x, y); err != nil {
 		return err
 	}
@@ -2233,6 +2368,9 @@ func (o *Surface) Offset(x int32, y int32) error {
 
 // Create a callback for the release of the buffer attached by the client with wl_surface.attach. The compositor will release the buffer when it has finished its usage of the underlying storage for the relevant commit. Once the client receives this event, and assuming the associated buffer is not pending release from other wl_surface.commit requests, the client can safely re-use the buffer. Release callbacks are double-buffered state, and will be associated with the pending buffer at wl_surface.commit time. The callback_data passed in the wl_callback.done event is unused and is always zero. Sending this request without attaching a non-null buffer in the same content update is a protocol error. The compositor will send the no_buffer error in this case.
 func (o *Surface) GetRelease() (*Callback, error) {
+	if err := o.Context().CheckProxy(o); err != nil {
+		return nil, err
+	}
 	child := &Callback{}
 	child.SetContext(o.Context())
 	child.SetID(o.Context().AllocateID())
@@ -2406,6 +2544,9 @@ func NewSeat(ctx *wl.Context) *Seat {
 
 // The ID provided will be initialized to the wl_pointer interface for this seat. This request only takes effect if the seat has the pointer capability, or has had the pointer capability in the past. It is a protocol violation to issue this request on a seat that has never had the pointer capability. The missing_capability error will be sent in this case.
 func (o *Seat) GetPointer() (*Pointer, error) {
+	if err := o.Context().CheckProxy(o); err != nil {
+		return nil, err
+	}
 	child := &Pointer{}
 	child.SetContext(o.Context())
 	child.SetID(o.Context().AllocateID())
@@ -2419,6 +2560,9 @@ func (o *Seat) GetPointer() (*Pointer, error) {
 
 // The ID provided will be initialized to the wl_keyboard interface for this seat. This request only takes effect if the seat has the keyboard capability, or has had the keyboard capability in the past. It is a protocol violation to issue this request on a seat that has never had the keyboard capability. The missing_capability error will be sent in this case.
 func (o *Seat) GetKeyboard() (*Keyboard, error) {
+	if err := o.Context().CheckProxy(o); err != nil {
+		return nil, err
+	}
 	child := &Keyboard{}
 	child.SetContext(o.Context())
 	child.SetID(o.Context().AllocateID())
@@ -2432,6 +2576,9 @@ func (o *Seat) GetKeyboard() (*Keyboard, error) {
 
 // The ID provided will be initialized to the wl_touch interface for this seat. This request only takes effect if the seat has the touch capability, or has had the touch capability in the past. It is a protocol violation to issue this request on a seat that has never had the touch capability. The missing_capability error will be sent in this case.
 func (o *Seat) GetTouch() (*Touch, error) {
+	if err := o.Context().CheckProxy(o); err != nil {
+		return nil, err
+	}
 	child := &Touch{}
 	child.SetContext(o.Context())
 	child.SetID(o.Context().AllocateID())
@@ -2445,6 +2592,9 @@ func (o *Seat) GetTouch() (*Touch, error) {
 
 // Using this request a client can tell the server that it is not going to use the seat object anymore.
 func (o *Seat) Release() error {
+	if err := o.Context().CheckProxy(o); err != nil {
+		return err
+	}
 	if err := o.Context().SendRequest(o, 3); err != nil {
 		return err
 	}
@@ -2562,6 +2712,9 @@ func NewPointer(ctx *wl.Context) *Pointer {
 
 // Set the pointer surface, i.e., the surface that contains the pointer image (cursor). This request gives the surface the role of a cursor. If the surface already has another role, it raises a protocol error. The cursor actually changes only if the pointer focus for this device is one of the requesting client's surfaces or the surface parameter is the current pointer surface. If there was a previous surface set with this request it is replaced. If surface is NULL, the pointer image is hidden. The parameters hotspot_x and hotspot_y define the position of the pointer surface relative to the pointer location. Its top-left corner is always at (x, y) - (hotspot_x, hotspot_y), where (x, y) are the coordinates of the pointer location, in surface-local coordinates. On wl_surface.offset requests to the pointer surface, hotspot_x and hotspot_y are decremented by the x and y parameters passed to the request. The offset must be applied by wl_surface.commit as usual. The hotspot can also be updated by passing the currently set pointer surface to this request with new values for hotspot_x and hotspot_y. The input region is ignored for wl_surfaces with the role of a cursor. When the use as a cursor ends, the wl_surface is unmapped. The serial parameter must match the latest wl_pointer.enter serial number sent to the client. Otherwise the request will be ignored.
 func (o *Pointer) SetCursor(serial uint32, surface *Surface, hotspotX int32, hotspotY int32) error {
+	if err := o.Context().CheckProxy(o); err != nil {
+		return err
+	}
 	var arg1 wl.Object
 	if surface != nil {
 		arg1 = surface
@@ -2574,6 +2727,9 @@ func (o *Pointer) SetCursor(serial uint32, surface *Surface, hotspotX int32, hot
 
 // Using this request a client can tell the server that it is not going to use the pointer object anymore. This request destroys the pointer proxy object, so clients must not call wl_pointer_destroy() after using this request.
 func (o *Pointer) Release() error {
+	if err := o.Context().CheckProxy(o); err != nil {
+		return err
+	}
 	if err := o.Context().SendRequest(o, 1); err != nil {
 		return err
 	}
@@ -3010,6 +3166,9 @@ func NewKeyboard(ctx *wl.Context) *Keyboard {
 
 // release the keyboard object
 func (o *Keyboard) Release() error {
+	if err := o.Context().CheckProxy(o); err != nil {
+		return err
+	}
 	if err := o.Context().SendRequest(o, 0); err != nil {
 		return err
 	}
@@ -3263,6 +3422,9 @@ func NewTouch(ctx *wl.Context) *Touch {
 
 // release the touch object
 func (o *Touch) Release() error {
+	if err := o.Context().CheckProxy(o); err != nil {
+		return err
+	}
 	if err := o.Context().SendRequest(o, 0); err != nil {
 		return err
 	}
@@ -3540,6 +3702,9 @@ func NewOutput(ctx *wl.Context) *Output {
 
 // Using this request a client can tell the server that it is not going to use the output object anymore.
 func (o *Output) Release() error {
+	if err := o.Context().CheckProxy(o); err != nil {
+		return err
+	}
 	if err := o.Context().SendRequest(o, 0); err != nil {
 		return err
 	}
@@ -3775,6 +3940,9 @@ func NewRegion(ctx *wl.Context) *Region {
 
 // Destroy the region.  This will invalidate the object ID.
 func (o *Region) Destroy() error {
+	if err := o.Context().CheckProxy(o); err != nil {
+		return err
+	}
 	if err := o.Context().SendRequest(o, 0); err != nil {
 		return err
 	}
@@ -3784,6 +3952,9 @@ func (o *Region) Destroy() error {
 
 // Add the specified rectangle to the region.
 func (o *Region) Add(x int32, y int32, width int32, height int32) error {
+	if err := o.Context().CheckProxy(o); err != nil {
+		return err
+	}
 	if err := o.Context().SendRequest(o, 1, x, y, width, height); err != nil {
 		return err
 	}
@@ -3792,6 +3963,9 @@ func (o *Region) Add(x int32, y int32, width int32, height int32) error {
 
 // Subtract the specified rectangle from the region.
 func (o *Region) Subtract(x int32, y int32, width int32, height int32) error {
+	if err := o.Context().CheckProxy(o); err != nil {
+		return err
+	}
 	if err := o.Context().SendRequest(o, 2, x, y, width, height); err != nil {
 		return err
 	}
@@ -3831,6 +4005,9 @@ func NewSubcompositor(ctx *wl.Context) *Subcompositor {
 
 // Informs the server that the client will not be using this protocol object anymore. This does not affect any other objects, wl_subsurface objects included.
 func (o *Subcompositor) Destroy() error {
+	if err := o.Context().CheckProxy(o); err != nil {
+		return err
+	}
 	if err := o.Context().SendRequest(o, 0); err != nil {
 		return err
 	}
@@ -3840,6 +4017,9 @@ func (o *Subcompositor) Destroy() error {
 
 // Create a sub-surface interface for the given surface, and associate it with the given parent surface. This turns a plain wl_surface into a sub-surface. The to-be sub-surface must not already have another role, and it must not have an existing wl_subsurface object. Otherwise the bad_surface protocol error is raised. Adding sub-surfaces to a parent is a double-buffered operation on the parent (see wl_surface.commit). The effect of adding a sub-surface becomes visible on the next time the state of the parent surface is applied. The parent surface must not be one of the child surface's descendants, and the parent must be different from the child surface, otherwise the bad_parent protocol error is raised. This request modifies the behaviour of wl_surface.commit request on the sub-surface, see the documentation on wl_subsurface interface.
 func (o *Subcompositor) GetSubsurface(surface *Surface, parent *Surface) (*Subsurface, error) {
+	if err := o.Context().CheckProxy(o); err != nil {
+		return nil, err
+	}
 	var arg1 wl.Object
 	if surface != nil {
 		arg1 = surface
@@ -3892,6 +4072,9 @@ func NewSubsurface(ctx *wl.Context) *Subsurface {
 
 // The sub-surface interface is removed from the wl_surface object that was turned into a sub-surface with a wl_subcompositor.get_subsurface request. The wl_surface's association to the parent is deleted. The wl_surface is unmapped immediately.
 func (o *Subsurface) Destroy() error {
+	if err := o.Context().CheckProxy(o); err != nil {
+		return err
+	}
 	if err := o.Context().SendRequest(o, 0); err != nil {
 		return err
 	}
@@ -3901,6 +4084,9 @@ func (o *Subsurface) Destroy() error {
 
 // This sets the position of the sub-surface, relative to the parent surface. The sub-surface will be moved so that its origin (top left corner pixel) will be at the location x, y of the parent surface coordinate system. The coordinates are not restricted to the parent surface area. Negative values are allowed. The initial position is 0, 0. Position is double-buffered state on the parent surface, see wl_subsurface and wl_surface.commit for more information.
 func (o *Subsurface) SetPosition(x int32, y int32) error {
+	if err := o.Context().CheckProxy(o); err != nil {
+		return err
+	}
 	if err := o.Context().SendRequest(o, 1, x, y); err != nil {
 		return err
 	}
@@ -3909,6 +4095,9 @@ func (o *Subsurface) SetPosition(x int32, y int32) error {
 
 // This sub-surface is taken from the stack, and put back just above the reference surface, changing the z-order of the sub-surfaces. The reference surface must be one of the sibling surfaces, or the parent surface. Using any other surface, including this sub-surface, will cause a protocol error. A new sub-surface is initially added as the top-most in the stack of its siblings and parent. Z-order is double-buffered state on the parent surface, see wl_subsurface and wl_surface.commit for more information.
 func (o *Subsurface) PlaceAbove(sibling *Surface) error {
+	if err := o.Context().CheckProxy(o); err != nil {
+		return err
+	}
 	var arg0 wl.Object
 	if sibling != nil {
 		arg0 = sibling
@@ -3921,6 +4110,9 @@ func (o *Subsurface) PlaceAbove(sibling *Surface) error {
 
 // The sub-surface is placed just below the reference surface. See wl_subsurface.place_above.
 func (o *Subsurface) PlaceBelow(sibling *Surface) error {
+	if err := o.Context().CheckProxy(o); err != nil {
+		return err
+	}
 	var arg0 wl.Object
 	if sibling != nil {
 		arg0 = sibling
@@ -3933,6 +4125,9 @@ func (o *Subsurface) PlaceBelow(sibling *Surface) error {
 
 // Change the commit behaviour of the sub-surface to synchronized mode. See wl_subsurface and wl_surface.commit for more information.
 func (o *Subsurface) SetSync() error {
+	if err := o.Context().CheckProxy(o); err != nil {
+		return err
+	}
 	if err := o.Context().SendRequest(o, 4); err != nil {
 		return err
 	}
@@ -3941,6 +4136,9 @@ func (o *Subsurface) SetSync() error {
 
 // Change the commit behaviour of the sub-surface to desynchronized mode. See wl_subsurface and wl_surface.commit for more information.
 func (o *Subsurface) SetDesync() error {
+	if err := o.Context().CheckProxy(o); err != nil {
+		return err
+	}
 	if err := o.Context().SendRequest(o, 5); err != nil {
 		return err
 	}
@@ -3980,6 +4178,9 @@ func NewFixes(ctx *wl.Context) *Fixes {
 
 // destroys this object
 func (o *Fixes) Destroy() error {
+	if err := o.Context().CheckProxy(o); err != nil {
+		return err
+	}
 	if err := o.Context().SendRequest(o, 0); err != nil {
 		return err
 	}
@@ -3989,6 +4190,9 @@ func (o *Fixes) Destroy() error {
 
 // This request destroys a wl_registry object. The client should no longer use the wl_registry after making this request. The compositor will emit a wl_display.delete_id event with the object ID of the registry and will no longer emit any events on the registry. The client should re-use the object ID once it receives the wl_display.delete_id event.
 func (o *Fixes) DestroyRegistry(registry *wl.Registry) error {
+	if err := o.Context().CheckProxy(o); err != nil {
+		return err
+	}
 	var arg0 wl.Object
 	if registry != nil {
 		arg0 = registry
@@ -4001,6 +4205,9 @@ func (o *Fixes) DestroyRegistry(registry *wl.Registry) error {
 
 // Acknowledge the removal of the specified global. If no global with the specified name exists or the global is not removed, the wl_fixes.invalid_ack_remove protocol error will be posted. Due to the Wayland protocol being asynchronous, the wl_global objects cannot be destroyed immediately. For example, if a wl_global is removed and a client attempts to bind that global around same time, it can result in a protocol error due to an unknown global name in the bind request. In order to avoid crashing clients, the compositor should remove the wl_global once it is guaranteed that no more bind requests will come. The wl_fixes.ack_global_remove() request is used to signal to the compositor that the client will not bind the given global anymore. After all clients acknowledge the removal of the global, the compositor can safely destroy it. The client must call the wl_fixes.ack_global_remove() request in response to a wl_registry.global_remove() event even if it did not bind the corresponding global.
 func (o *Fixes) AckGlobalRemove(registry *wl.Registry, name uint32) error {
+	if err := o.Context().CheckProxy(o); err != nil {
+		return err
+	}
 	var arg0 wl.Object
 	if registry != nil {
 		arg0 = registry

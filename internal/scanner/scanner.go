@@ -611,28 +611,28 @@ func (s *Scanner) goTypeForArg(arg Arg) (string, error) {
 	case "fd":
 		return "int", nil
 	case "object", "new_id":
-		return s.goTypeForInterface(arg.Interface), nil
+		return s.goTypeForInterface(arg.Interface)
 	}
 	return "", fmt.Errorf("unsupported argument type %q", arg.Type)
 }
 
-func (s *Scanner) goTypeForInterface(iface string) string {
+func (s *Scanner) goTypeForInterface(iface string) (string, error) {
 	if iface == "" {
-		return "wl.BaseProxy"
+		return "wl.BaseProxy", nil
 	}
 	// The XML package owns its own definitions even when the name starts wl_.
 	for _, local := range s.protocol.Interfaces {
 		if local.Name == iface && iface != "wl_display" && iface != "wl_registry" {
-			return s.toGoName(iface)
+			return s.toGoName(iface), nil
 		}
 	}
 	if bootstrapTypes[s.toGoName(iface)] {
-		return "wl." + s.toGoName(iface)
+		return "wl." + s.toGoName(iface), nil
 	}
 	if _, ok := s.CrossPackage[iface]; ok {
-		return "cross_" + strings.ReplaceAll(iface, "-", "_") + "." + s.toGoName(iface)
+		return "cross_" + strings.ReplaceAll(iface, "-", "_") + "." + s.toGoName(iface), nil
 	}
-	return "wl.BaseProxy"
+	return "", fmt.Errorf("unresolved interface %q: add CrossPackage mapping", iface)
 }
 
 // paramName turns a protocol argument name into a Go parameter name.

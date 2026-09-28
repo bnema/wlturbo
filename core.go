@@ -60,18 +60,33 @@ func NewContext(display *Display) *Context {
 
 // SendRequest sends a request through the context
 func (c *Context) SendRequest(proxy Proxy, opcode uint32, args ...interface{}) error {
-	if c.closed.Load() {
-		return errors.New("context is closed")
+	if err := c.CheckProxy(proxy); err != nil {
+		return err
 	}
 	return c.display.SendRequest(proxy.ID(), uint16(opcode), args...)
 }
 
 // SendRequestWithFDs sends a request with file descriptors through the context
 func (c *Context) SendRequestWithFDs(proxy Proxy, opcode uint32, fds []int, args ...interface{}) error {
+	if err := c.CheckProxy(proxy); err != nil {
+		return err
+	}
+	return c.display.SendRequestWithFDs(proxy.ID(), uint16(opcode), fds, args...)
+}
+
+// CheckProxy rejects stale and foreign proxies before any bytes are written.
+func (c *Context) CheckProxy(proxy Proxy) error {
 	if c.closed.Load() {
 		return errors.New("context is closed")
 	}
-	return c.display.SendRequestWithFDs(proxy.ID(), uint16(opcode), fds, args...)
+	if proxy == nil || proxy.ID() == 0 || proxy.Context() != c {
+		return errors.New("invalid proxy")
+	}
+	registered, ok := c.proxies.Load(proxy.ID())
+	if !ok || registered != proxy {
+		return errors.New("proxy is not registered")
+	}
+	return nil
 }
 
 // Register registers a proxy object

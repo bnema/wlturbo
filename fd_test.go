@@ -456,3 +456,72 @@ func TestDisplayFD_ParseFailureClosesQueuedDescriptor(t *testing.T) {
 		t.Fatalf("read after malformed frame = %v, want %v", err, io.EOF)
 	}
 }
+
+// Closing in a callback must not wait for the dispatch reader's state lock.
+type closingProxy struct {
+	BaseProxy
+	d        *Display
+	returned bool
+}
+
+func (p *closingProxy) EventSignature(op uint16) (string, bool) { return "fd,", op == 0 }
+func (p *closingProxy) Dispatch(*Event)                         { p.returned = p.d.Close() == nil }
+
+func TestCloseInsideHandlerClosesQueuedFDs(t *testing.T) {
+	client, peer := unixSocketPair(t)
+	d := newDisplay(client)
+	proxy := &closingProxy{BaseProxy: BaseProxy{id: 7, context: d.context}, d: d}
+	d.context.Register(proxy)
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	extra, xw, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer extra.Close()
+	// Two frames in one read; second FD remains queued while first handler runs.
+	payload := append(message(7, 0, nil), message(7, 0, nil)...)
+	sendMessageWithFDs(t, peer, payload, []int{int(w.Fd()), int(xw.Fd())})
+	w.Close()
+	xw.Close()
+	if err := d.Dispatch(); err != nil {
+		t.Fatal(err)
+	}
+	if !proxy.returned {
+		t.Fatal("Close did not return from handler")
+	}
+	for _, reader := range []*os.File{r, extra} {
+		if err := reader.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := reader.Read(make([]byte, 1)); !errors.Is(err, io.EOF) {
+			t.Fatalf("fd not closed: %v", err)
+		}
+	}
+}
+
+func TestParseFDsKeepsRightsBeforeMalformedHeader(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	defer w.Close()
+	rights := unix.UnixRights(int(w.Fd()))
+	oob := append(rights, make([]byte, unix.SizeofCmsghdr)...)
+	fds, err := parseFDs(oob)
+	if err == nil || len(fds) != 1 {
+		t.Fatalf("fds=%v err=%v", fds, err)
+	}
+	if _, err := unix.FcntlInt(uintptr(fds[0]), unix.F_GETFD, 0); err != nil {
+		t.Fatal(err)
+	}
+	for _, fd := range fds {
+		if err := unix.Close(fd); err != nil {
+			t.Fatal(err)
+		}
+	}
+}

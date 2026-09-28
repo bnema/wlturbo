@@ -399,3 +399,35 @@ func TestUnclaimedFirstHandlerFDClosed(t *testing.T) {
 		t.Fatalf("unclaimed FD not closed: %d %v", n, e)
 	}
 }
+
+func TestDestroyedProxyRejectsRequests(t *testing.T) {
+	c, p := pair(t)
+	d, err := wlturbo.ConnectFromConn(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	receiveRequest(t, p)
+	surface := core.NewSurface(d.Context())
+	surface.SetID(d.AllocateID())
+	d.Context().Register(surface)
+	if err := surface.Destroy(); err != nil {
+		t.Fatal(err)
+	}
+	receiveRequest(t, p)
+	if err := surface.Destroy(); err == nil {
+		t.Fatal("second destroy succeeded")
+	}
+	if err := surface.Commit(); err == nil {
+		t.Fatal("request on destroyed surface succeeded")
+	}
+	if _, err := surface.Frame(); err == nil {
+		t.Fatal("child request on destroyed surface succeeded")
+	}
+	p.SetReadDeadline(time.Now().Add(20 * time.Millisecond))
+	_, err = p.Read(make([]byte, 32))
+	ne, ok := err.(net.Error)
+	if !ok || !ne.Timeout() {
+		t.Fatalf("unexpected bytes on wire: %v", err)
+	}
+}

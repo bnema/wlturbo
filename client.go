@@ -49,8 +49,12 @@ type Display struct {
 	unix       *net.UnixConn // set when conn is a Unix socket, nil otherwise
 	objects    sync.Map      // map[uint32]Object
 	nextID     uint32
+	idMu       sync.Mutex
+	freeIDs    []uint32
+	retiredIDs map[uint32]bool
 	sendMu     sync.Mutex
 	recvMu     sync.Mutex
+	dispatchMu sync.Mutex // serialize readers without holding receive state across handlers
 	signatures sync.Map
 	listenerMu sync.Mutex
 	listeners  sync.Map // map[uint32]map[uint16][]func([]byte)
@@ -192,8 +196,6 @@ func (d *Display) Close() error {
 	}
 	d.context.closed.Store(true)
 	err := d.conn.Close()
-	d.sendMu.Lock()
-	d.sendMu.Unlock()
 	d.recvMu.Lock()
 	d.closePendingFDs()
 	d.recvMu.Unlock()
@@ -217,7 +219,20 @@ func (d *Display) RegisterEventHandler(objectID uint32, opcode uint16, handler E
 
 // allocateID allocates a new object ID
 func (d *Display) allocateID() uint32 {
-	return atomic.AddUint32(&d.nextID, 1) - 1
+	d.idMu.Lock()
+	defer d.idMu.Unlock()
+	if n := len(d.freeIDs); n != 0 {
+		id := d.freeIDs[n-1]
+		d.freeIDs = d.freeIDs[:n-1]
+		delete(d.retiredIDs, id)
+		return id
+	}
+	if d.nextID == 0 || d.nextID >= 0xff000000 {
+		return 0 // exhausted; never allocate a reserved server ID
+	}
+	id := d.nextID
+	d.nextID++
+	return id
 }
 
 // AllocateID allocates a new object ID (public method)
@@ -338,14 +353,17 @@ func (d *Display) marshalArg(buf *bytes.Buffer, arg interface{}) error {
 // Dispatch returns net.ErrClosed after Close, a typed ProtocolError for a
 // malformed frame, and io.ErrUnexpectedEOF when the peer closes mid-frame.
 func (d *Display) Dispatch() error {
+	d.dispatchMu.Lock()
+	defer d.dispatchMu.Unlock()
 	d.recvMu.Lock()
-	defer d.recvMu.Unlock()
 
 	if d.closed.Load() {
+		d.recvMu.Unlock()
 		return net.ErrClosed
 	}
 
 	frame, err := d.nextFrame()
+	d.recvMu.Unlock()
 	if d.closed.Load() {
 		return net.ErrClosed
 	}
@@ -362,6 +380,8 @@ func (d *Display) fail(err error) error {
 	if err == nil {
 		return nil
 	}
+	d.recvMu.Lock()
+	defer d.recvMu.Unlock()
 	var perr *ProtocolError
 	if errors.As(err, &perr) {
 		d.closePendingFDs()
@@ -448,11 +468,45 @@ type signatureProvider interface{ EventSignature(uint16) (string, bool) }
 
 // dispatchFrame delivers one complete frame with precisely its signature's FDs.
 func (d *Display) dispatchFrame(f receivedFrame) error {
+	d.recvMu.Lock()
+	obj, ev, kind, err := d.prepareFrame(f)
+	d.recvMu.Unlock()
+	if err != nil {
+		return err
+	}
+	switch kind {
+	case 1:
+		return d.handleDisplayEvent(f.opcode, f.body)
+	case 2:
+		d.notifyListeners(f.object, f.opcode, f.body)
+		return nil
+	}
+	defer func() {
+		for _, fd := range ev.fds {
+			_ = fd.Close()
+		}
+		*ev = Event{}
+		eventPool.Put(ev)
+	}()
+	if proxy, ok := obj.(Proxy); ok {
+		proxy.Dispatch(ev)
+	} else {
+		d.dispatcher.Dispatch(f.object, f.opcode, f.body)
+		d.notifyListeners(f.object, f.opcode, f.body)
+	}
+	return nil
+}
+
+// prepareFrame assigns owned descriptors under recvMu, but never calls user code.
+func (d *Display) prepareFrame(f receivedFrame) (Object, *Event, uint8, error) {
+	if d.closed.Load() {
+		return nil, nil, 0, net.ErrClosed
+	}
 	if f.object == displayObjectID {
 		if len(d.pendingFDs) != 0 && len(d.rbuf) == 0 {
-			return &ProtocolError{Kind: "extra_fd", Err: ErrMalformedFrame}
+			return nil, nil, 0, &ProtocolError{Kind: "extra_fd", Err: ErrMalformedFrame}
 		}
-		return d.handleDisplayEvent(f.opcode, f.body)
+		return nil, nil, 1, nil
 	}
 	if f.object == d.registry.id {
 		var sig string
@@ -462,20 +516,19 @@ func (d *Display) dispatchFrame(f receivedFrame) error {
 		case 1:
 			sig = "uint,"
 		default:
-			return &ProtocolError{Kind: "unknown_opcode", Object: f.object, Opcode: f.opcode, Err: ErrUnknownOpcode}
+			return nil, nil, 0, &ProtocolError{Kind: "unknown_opcode", Object: f.object, Opcode: f.opcode, Err: ErrUnknownOpcode}
 		}
 		if err := validateEventBody(sig, f.body); err != nil {
-			return &ProtocolError{Kind: "malformed_payload", Object: f.object, Opcode: f.opcode, Err: err}
+			return nil, nil, 0, &ProtocolError{Kind: "malformed_payload", Object: f.object, Opcode: f.opcode, Err: err}
 		}
 		if len(d.pendingFDs) != 0 && len(d.rbuf) == 0 {
-			return &ProtocolError{Kind: "extra_fd", Object: f.object, Opcode: f.opcode, Err: ErrMalformedFrame}
+			return nil, nil, 0, &ProtocolError{Kind: "extra_fd", Object: f.object, Opcode: f.opcode, Err: ErrMalformedFrame}
 		}
-		d.notifyListeners(f.object, f.opcode, f.body)
-		return nil
+		return nil, nil, 2, nil
 	}
 	obj, ok := d.objects.Load(f.object)
 	if !ok {
-		return &ProtocolError{Kind: "unknown_object", Object: f.object, Opcode: f.opcode, Err: ErrUnknownObject}
+		return nil, nil, 0, &ProtocolError{Kind: "unknown_object", Object: f.object, Opcode: f.opcode, Err: ErrUnknownObject}
 	}
 	sig, valid := "", false
 	p, isGenerated := obj.(signatureProvider)
@@ -489,14 +542,14 @@ func (d *Display) dispatchFrame(f receivedFrame) error {
 		}
 	}
 	if !valid {
-		return &ProtocolError{Kind: "unknown_opcode", Object: f.object, Opcode: f.opcode, Err: ErrUnknownOpcode}
+		return nil, nil, 0, &ProtocolError{Kind: "unknown_opcode", Object: f.object, Opcode: f.opcode, Err: ErrUnknownOpcode}
 	}
 	if err := validateEventBody(sig, f.body); err != nil {
-		return &ProtocolError{Kind: "malformed_payload", Object: f.object, Opcode: f.opcode, Err: err}
+		return nil, nil, 0, &ProtocolError{Kind: "malformed_payload", Object: f.object, Opcode: f.opcode, Err: err}
 	}
 	count := strings.Count(sig, "fd,")
 	if len(d.pendingFDs) < count {
-		return &ProtocolError{Kind: "missing_fd", Object: f.object, Opcode: f.opcode, Err: ErrMalformedFrame}
+		return nil, nil, 0, &ProtocolError{Kind: "missing_fd", Object: f.object, Opcode: f.opcode, Err: ErrMalformedFrame}
 	}
 	ev := eventPool.Get().(*Event)
 	*ev = Event{ProxyID: f.object, Opcode: f.opcode, data: f.body, display: d}
@@ -507,25 +560,17 @@ func (d *Display) dispatchFrame(f receivedFrame) error {
 		}
 		d.pendingFDs = d.pendingFDs[count:]
 	}
-	defer func() {
+	// FDs from a single recvmsg can accompany multiple coalesced frames. Once
+	// all buffered bytes have been framed, surplus descriptors are not legal.
+	if len(d.rbuf) == 0 && len(d.pendingFDs) != 0 {
 		for _, fd := range ev.fds {
 			_ = fd.Close()
 		}
 		*ev = Event{}
 		eventPool.Put(ev)
-	}()
-	// FDs from a single recvmsg can accompany multiple coalesced frames. Once
-	// all buffered bytes have been framed, surplus descriptors are not legal.
-	if len(d.rbuf) == 0 && len(d.pendingFDs) != 0 {
-		return &ProtocolError{Kind: "extra_fd", Object: f.object, Opcode: f.opcode, Err: ErrMalformedFrame}
+		return nil, nil, 0, &ProtocolError{Kind: "extra_fd", Object: f.object, Opcode: f.opcode, Err: ErrMalformedFrame}
 	}
-	if proxy, ok := obj.(Proxy); ok {
-		proxy.Dispatch(ev)
-	} else {
-		d.dispatcher.Dispatch(f.object, f.opcode, f.body)
-		d.notifyListeners(f.object, f.opcode, f.body)
-	}
-	return nil
+	return obj.(Object), ev, 0, nil
 }
 
 type signatureKey struct {
@@ -585,8 +630,18 @@ func (d *Display) handleDisplayEvent(opcode uint16, data []byte) error {
 			return &ProtocolError{Kind: "short_delete_id", Object: displayObjectID, Opcode: opcode, Size: uint32(len(data)) + HeaderSize, Err: ErrMalformedFrame}
 		}
 		id := binary.LittleEndian.Uint32(data[0:4])
-		d.objects.Delete(id)
-		d.context.proxies.Delete(id)
+		d.idMu.Lock()
+		_, live := d.objects.Load(id)
+		if id < 2 || id >= 0xff000000 || id >= d.nextID || live || d.retiredIDs[id] {
+			d.idMu.Unlock()
+			return &ProtocolError{Kind: "invalid_delete_id", Object: id, Err: ErrMalformedFrame}
+		}
+		if d.retiredIDs == nil {
+			d.retiredIDs = make(map[uint32]bool)
+		}
+		d.retiredIDs[id] = true
+		d.freeIDs = append(d.freeIDs, id)
+		d.idMu.Unlock()
 		return nil
 
 	default:

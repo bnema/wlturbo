@@ -10,6 +10,7 @@ import (
 	"net"
 	"sync"
 	"syscall"
+	"unsafe"
 
 	"golang.org/x/sys/unix"
 )
@@ -19,10 +20,12 @@ import (
 // instead of silently dropping descriptors.
 const maxRecvFDs = 64
 
+type controlBuffer struct{ data []byte }
+
 // controlBufferPool provides control-message buffers sized for maxRecvFDs.
 var controlBufferPool = sync.Pool{
 	New: func() interface{} {
-		return make([]byte, unix.CmsgSpace(maxRecvFDs*4))
+		return &controlBuffer{data: make([]byte, unix.CmsgSpace(maxRecvFDs*4))}
 	},
 }
 
@@ -43,8 +46,9 @@ func (d *Display) readChunk() (int, error) {
 		return n, err
 	}
 
-	oob := controlBufferPool.Get().([]byte)
-	defer controlBufferPool.Put(oob)
+	buffer := controlBufferPool.Get().(*controlBuffer)
+	defer controlBufferPool.Put(buffer)
+	oob := buffer.data
 
 	n, oobn, flags, _, err := d.unix.ReadMsgUnix(d.recvBuf, oob)
 	if n < 0 {
@@ -54,12 +58,12 @@ func (d *Display) readChunk() (int, error) {
 	if oobn > 0 {
 		fds, perr := parseFDs(oob[:oobn])
 		d.queueFDs(fds)
-		if perr != nil && err == nil {
-			err = perr
+		if perr != nil {
+			err = &ProtocolError{Kind: "malformed_control", Err: perr}
 		}
 	}
 
-	if flags&unix.MSG_CTRUNC != 0 && err == nil {
+	if flags&unix.MSG_CTRUNC != 0 {
 		// Descriptors were dropped by the kernel, so the connection can no
 		// longer be demarshalled correctly: treat it as a protocol failure so
 		// the caller closes the descriptors that did arrive.
@@ -71,36 +75,49 @@ func (d *Display) readChunk() (int, error) {
 // parseFDs extracts the file descriptors carried by socket control messages.
 // Descriptors parsed before an error are returned so the caller can close them.
 func parseFDs(oob []byte) ([]int, error) {
-	scms, err := syscall.ParseSocketControlMessage(oob)
-	if err != nil {
-		return nil, fmt.Errorf("parse control message: %w", err)
-	}
-
 	var fds []int
-	for i := range scms {
-		scm := &scms[i]
-		if scm.Header.Type != syscall.SCM_RIGHTS {
-			continue
+	for len(oob) > 0 {
+		if len(oob) < unix.SizeofCmsghdr {
+			return fds, fmt.Errorf("short control header")
 		}
-		parsed, err := syscall.ParseUnixRights(scm)
-		if err != nil {
-			return fds, fmt.Errorf("parse unix rights: %w", err)
+		var hdr unix.Cmsghdr
+		// Parse each header independently: a malformed later header must not
+		// discard rights already decoded from earlier messages.
+		if err := readControlHeader(oob, &hdr); err != nil {
+			return fds, err
 		}
-		fds = append(fds, parsed...)
+		length := int(hdr.Len)
+		if length < unix.SizeofCmsghdr || length > len(oob) {
+			return fds, fmt.Errorf("invalid control length %d", length)
+		}
+		if hdr.Level == unix.SOL_SOCKET && hdr.Type == unix.SCM_RIGHTS {
+			message := syscall.SocketControlMessage{Header: syscall.Cmsghdr{Len: uint64(length), Level: int32(hdr.Level), Type: int32(hdr.Type)}, Data: oob[unix.SizeofCmsghdr:length]}
+			parsed, err := syscall.ParseUnixRights(&message)
+			if err != nil {
+				return fds, fmt.Errorf("parse unix rights: %w", err)
+			}
+			fds = append(fds, parsed...)
+		}
+		step := unix.CmsgSpace(length - unix.SizeofCmsghdr)
+		if step > len(oob) {
+			break
+		} // final control message may omit trailing padding
+		oob = oob[step:]
 	}
 	return fds, nil
 }
 
+func readControlHeader(data []byte, hdr *unix.Cmsghdr) error {
+	// Linux cmsghdr has a native-endian size_t followed by two int32s.
+	if len(data) < unix.SizeofCmsghdr {
+		return fmt.Errorf("short control header")
+	}
+	*hdr = *(*unix.Cmsghdr)(unsafe.Pointer(&data[0]))
+	return nil
+}
+
 // queueFDs is called only by the active Dispatch reader.
 func (d *Display) queueFDs(fds []int) { d.pendingFDs = append(d.pendingFDs, fds...) }
-func (d *Display) nextFD() (int, bool) {
-	if len(d.pendingFDs) == 0 {
-		return -1, false
-	}
-	fd := d.pendingFDs[0]
-	d.pendingFDs = d.pendingFDs[1:]
-	return fd, true
-}
 
 // closePendingFDs is called under recvMu (including during shutdown).
 func (d *Display) closePendingFDs() {

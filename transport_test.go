@@ -93,10 +93,12 @@ func newChunkDisplay(chunks [][]byte) (*Display, *[]EventRecord) {
 		records:   &records,
 	})
 	for _, opcode := range []uint16{3, 4, 5} {
-        signature := "uint,"
-        if opcode == 3 { signature = "uint,uint," }
-        d.RegisterEventSignature(7, opcode, signature)
-    }
+		signature := "uint,"
+		if opcode == 3 {
+			signature = "uint,uint,"
+		}
+		d.RegisterEventSignature(7, opcode, signature)
+	}
 	return d, &records
 }
 
@@ -279,6 +281,10 @@ func TestDisplayDispatch_DisplayError(t *testing.T) {
 
 func TestDisplayDispatch_DeleteID(t *testing.T) {
 	d, records := newChunkDisplay([][]byte{message(displayObjectID, 1, []byte{7, 0, 0, 0})})
+	for d.nextID <= 7 {
+		d.allocateID()
+	}
+	d.objects.Delete(uint32(7))
 
 	if err := d.Dispatch(); err != nil {
 		t.Fatalf("Dispatch: %v", err)
@@ -353,5 +359,35 @@ func TestReadFrame(t *testing.T) {
 	// Truncated bodies are reported, never returned partially.
 	if _, _, _, err := readFrame(&chunkConn{chunks: [][]byte{append(header(7, 3, 16), 0x01)}}, 0); !errors.Is(err, io.ErrUnexpectedEOF) {
 		t.Fatalf("readFrame(truncated) error = %v, want %v", err, io.ErrUnexpectedEOF)
+	}
+}
+
+func TestDeleteIDReuseAndInvalid(t *testing.T) {
+	d := newDisplay(&chunkConn{})
+	id := d.AllocateID()
+	body := make([]byte, 4)
+	binary.LittleEndian.PutUint32(body, id)
+	if err := d.handleDisplayEvent(1, body); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.handleDisplayEvent(1, body); err == nil {
+		t.Fatal("duplicate delete_id accepted")
+	}
+	d.nextID = 0xff000000 // simulate exhaustion
+	if got := d.AllocateID(); got != id {
+		t.Fatalf("reused %d, want %d", got, id)
+	}
+	if got := d.AllocateID(); got != 0 {
+		t.Fatalf("allocated server-range ID %x", got)
+	}
+	d.objects.Store(id, d)
+	if err := d.handleDisplayEvent(1, body); err == nil {
+		t.Fatal("live ID deleted")
+	}
+	for _, bad := range []uint32{0, 1, 0xff000001} {
+		binary.LittleEndian.PutUint32(body, bad)
+		if err := d.handleDisplayEvent(1, body); err == nil {
+			t.Fatalf("accepted reserved ID %x", bad)
+		}
 	}
 }

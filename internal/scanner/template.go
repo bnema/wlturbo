@@ -50,6 +50,7 @@ func New{{$iface.GoName}}(ctx *wl.Context) *{{$iface.GoName}} {
 // {{.Doc}}
 {{- end}}
 func (o *{{$iface.GoName}}) {{.GoName}}({{.Params}}) {{.Results}} {
+if err := o.Context().CheckProxy(o); err != nil { return {{.ErrorReturn}} }
 {{- range .ArgPreparations}}
 	{{.}}
 {{- end}}
