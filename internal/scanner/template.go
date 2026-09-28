@@ -54,8 +54,12 @@ func (o *{{$iface.GoName}}) {{.GoName}}({{.Params}}) {{.Results}} {
 	{{.}}
 {{- end}}
 {{- if .CreatesChild}}
+{{- if .ChildFactory}}
+	{{.ChildVar}} := {{.ChildFactory}}(o.Context())
+{{- else}}
 	{{.ChildVar}} := &{{.ChildType}}{}
 	{{.ChildVar}}.SetContext(o.Context())
+{{- end}}
 	{{.ChildVar}}.SetID(o.Context().AllocateID())
 	o.Context().Register({{.ChildVar}})
 {{- end}}

@@ -194,6 +194,7 @@ type requestData struct {
 	CreatesChild    bool
 	ChildVar        string
 	ChildType       string
+	ChildFactory    string
 	ErrorReturn     string
 	FDArgs          []string
 	HasFDs          bool
@@ -470,6 +471,9 @@ func (s *Scanner) processRequest(iface Interface, req Request, opcode int) (requ
 		}
 		data.CreatesChild = true
 		data.ChildType = childType
+		if strings.Contains(childType, ".") {
+			data.ChildFactory = childType[:strings.LastIndex(childType, ".")+1] + "New" + s.toGoName(newIDArg.Interface)
+		}
 	}
 
 	for _, slot := range argSlots {
@@ -526,10 +530,17 @@ func (s *Scanner) processEvent(event Event, opcode int) (eventData, error) {
 				return data, fmt.Errorf("%s.%s: %w", event.Name, arg.Name, err)
 			}
 			child := name + "Object"
+			data.DecodeLines = append(data.DecodeLines, fmt.Sprintf("%sID := event.Uint32()", name))
+			if strings.Contains(childType, ".") {
+				factory := childType[:strings.LastIndex(childType, ".")+1] + "New" + s.toGoName(arg.Interface)
+				data.DecodeLines = append(data.DecodeLines, fmt.Sprintf("%s := %s(o.Context())", child, factory))
+			} else {
+				data.DecodeLines = append(data.DecodeLines,
+					fmt.Sprintf("%s := &%s{}", child, childType),
+					fmt.Sprintf("%s.SetContext(o.Context())", child),
+				)
+			}
 			data.DecodeLines = append(data.DecodeLines,
-				fmt.Sprintf("%sID := event.Uint32()", name),
-				fmt.Sprintf("%s := &%s{}", child, childType),
-				fmt.Sprintf("%s.SetContext(o.Context())", child),
 				fmt.Sprintf("%s.SetID(%sID)", child, name),
 				fmt.Sprintf("o.Context().Register(%s)", child),
 			)

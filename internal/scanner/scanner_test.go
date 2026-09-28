@@ -45,3 +45,31 @@ func TestCoreGeneration(t *testing.T) {
 		t.Fatal("bootstrap generated twice")
 	}
 }
+
+// P3 uses wl_buffer as both an event-created child and a request-created child.
+// Verify the generated code uses the public constructor instead of embedding
+// an inaccessible BaseProxy context field across package boundaries.
+func TestExternalChildFactory(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "external.xml")
+	xml := `<protocol name="fixture"><interface name="ext_params" version="1"><request name="create"><arg name="id" type="new_id" interface="wl_buffer"/></request><event name="created"><arg name="id" type="new_id" interface="wl_buffer"/></event></interface></protocol>`
+	if err := os.WriteFile(path, []byte(xml), 0600); err != nil {
+		t.Fatal(err)
+	}
+	s := NewScanner()
+	if err := s.ParseXML(path); err != nil {
+		t.Fatal(err)
+	}
+	s.CrossPackage = map[string]string{"wl_buffer": "github.com/bnema/wlturbo/protocol/core"}
+	generated, err := s.Generate("ext")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, part := range []string{"cross_wl_buffer.NewBuffer(o.Context())", "(*cross_wl_buffer.Buffer, error)", "idObject.SetID(idID)"} {
+		if !strings.Contains(string(generated), part) {
+			t.Errorf("generated code missing %q", part)
+		}
+	}
+	if strings.Contains(string(generated), "&cross_wl_buffer.Buffer{}") {
+		t.Fatal("foreign child was constructed without its package factory")
+	}
+}
