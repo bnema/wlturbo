@@ -441,6 +441,7 @@ func TestConcurrentDestroySendsOnce(t *testing.T) {
 	defer d.Close()
 	receiveRequest(t, p)
 	const rounds, destroyers, committers = 100, 4, 4
+	totalCommits := 0
 	for round := 0; round < rounds; round++ {
 		surface := core.NewSurface(d.Context())
 		surface.SetID(d.AllocateID())
@@ -469,6 +470,7 @@ func TestConcurrentDestroySendsOnce(t *testing.T) {
 		if okDestroy != 1 {
 			t.Fatalf("round %d: %d destroys succeeded, want 1", round, okDestroy)
 		}
+		totalCommits += okCommit
 		// Decode every frame: exactly okCommit commits (opcode 6), then one
 		// destroy (opcode 0) for this surface, and nothing after it.
 		frames := readFrames(t, p, okCommit+1)
@@ -486,6 +488,10 @@ func TestConcurrentDestroySendsOnce(t *testing.T) {
 			t.Fatalf("round %d: request after destroy (%d bytes, %v)", round, n, err)
 		}
 		p.SetReadDeadline(time.Time{})
+	}
+	// Ordering is only exercised when some commits won the race.
+	if totalCommits == 0 {
+		t.Fatal("no commit succeeded in any round; ordering was not exercised")
 	}
 }
 

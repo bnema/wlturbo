@@ -143,25 +143,28 @@ func (d *Display) sendmsgWithFDs(buf []byte, fds []int, guard func() error) erro
 	if d.closed.Load() {
 		return net.ErrClosed
 	}
+	if len(fds) > 0 && d.unix == nil {
+		return errors.New("wlturbo: cannot send file descriptors over a non-Unix connection")
+	}
 	if guard != nil {
 		if err := guard(); err != nil {
 			return err
 		}
 	}
+	var n int
+	var err error
 	if len(fds) == 0 {
-		n, err := d.conn.Write(buf)
-		if err == nil && n != len(buf) {
-			return io.ErrShortWrite
-		}
-		return err
+		n, err = d.conn.Write(buf)
+	} else {
+		n, _, err = d.unix.WriteMsgUnix(buf, unix.UnixRights(fds...), nil)
 	}
-	if d.unix == nil {
-		return errors.New("wlturbo: cannot send file descriptors over a non-Unix connection")
-	}
-
-	n, _, err := d.unix.WriteMsgUnix(buf, unix.UnixRights(fds...), nil)
 	if err == nil && n != len(buf) {
-		return io.ErrShortWrite
+		err = io.ErrShortWrite
+	}
+	if err != nil {
+		// A failed or partial write desynchronizes the stream: shut the socket
+		// down so every later send and receive fails instead of corrupting it.
+		_ = d.conn.Close()
 	}
 	return err
 }
