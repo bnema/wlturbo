@@ -265,7 +265,8 @@ func (s *Scanner) prepareTemplateData(packageName string) (templateData, error) 
 		}
 		for _, ev := range candidate.Events {
 			for _, arg := range ev.Args {
-				if arg.Type == "object" || arg.Type == "new_id" {
+				// Event object references are decoded as IDs, not imported proxies.
+				if arg.Type == "new_id" {
 					usedCross[arg.Interface] = true
 				}
 			}

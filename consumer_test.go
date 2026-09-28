@@ -35,7 +35,26 @@ func TestExternalConsumer(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(temp, "consumer_test.go"), source, 0600); err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command(goBin, "test", "-run", "TestGeneratedCoreOverSocketpair|TestBufferReleaseAndOfferChild", "./...")
+	// Keep the extension fake server in a separate package: both fixtures
+	// independently own their socketpair helpers.
+	extension, err := os.ReadFile(filepath.Join(root, "protocol/extensions_test.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(temp, "extensions"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(temp, "extensions", "extensions_test.go"), extension, 0600); err != nil {
+		t.Fatal(err)
+	}
+	negotiation, err := os.ReadFile(filepath.Join(root, "protocol/negotiation_test.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(temp, "extensions", "negotiation_test.go"), negotiation, 0600); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(goBin, "test", "-run", "TestGeneratedCoreOverSocketpair|TestBufferReleaseAndOfferChild|TestExtensionsOverSocketpair|TestAnnouncedVersionNegotiation", "./...")
 	cmd.Dir = temp
 	cmd.Env = append(os.Environ(), "GOWORK=off", "GOFLAGS=-mod=mod")
 	if output, err := cmd.CombinedOutput(); err != nil {
