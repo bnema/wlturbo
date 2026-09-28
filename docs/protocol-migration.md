@@ -25,5 +25,5 @@ The scanner accepts `-import wl_surface=github.com/bnema/wlturbo/protocol/core`
 (repeat for each external type); local XML definitions take precedence, then
 explicit external mapping, then only bootstrap display/registry. Generate with
 `GOWORK=off go generate ./...`; metadata and XML license are in
-`protocol/SOURCE.md`. P3 extensions will use the same scanner and public core
-mappings; no generator-owned compositor policy is introduced here.
+`protocol/SOURCE.md`. Extension packages under `protocol/` use the same scanner
+and public core mappings; the generator carries no compositor policy.

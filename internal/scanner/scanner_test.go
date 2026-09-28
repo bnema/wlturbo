@@ -47,7 +47,7 @@ func TestCoreGeneration(t *testing.T) {
 	}
 }
 
-// P3 uses wl_buffer as both an event-created child and a request-created child.
+// Extension protocols use wl_buffer as both an event-created child and a request-created child.
 // Verify the generated code uses the public constructor instead of embedding
 // an inaccessible BaseProxy context field across package boundaries.
 func TestExternalChildFactory(t *testing.T) {
