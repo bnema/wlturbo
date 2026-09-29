@@ -45,7 +45,8 @@ type Event struct {
 	fdIndex int
 }
 
-// Data returns the raw event data
+// Data returns the raw event body. It aliases the connection's receive buffer
+// and is only valid until the handler returns; copy it to keep it.
 func (e *Event) Data() []byte {
 	return e.data
 }

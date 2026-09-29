@@ -61,11 +61,12 @@ type Display struct {
 	registry *Registry
 	context  *Context // Store context once
 
-	// Connection-local receive state. rbuf holds bytes read from the socket
-	// that do not yet form a complete frame; recvBuf is the scratch buffer
-	// used for a single read. pendingFDs holds ancillary descriptors that
-	// arrived with those bytes and have not been consumed yet.
+	// Connection-local receive state. rbuf[rpos:] holds bytes read from the
+	// socket that have not been framed yet; recvBuf is the scratch buffer used
+	// for a single read. pendingFDs holds ancillary descriptors that arrived
+	// with those bytes and have not been consumed yet.
 	rbuf       []byte
+	rpos       int
 	recvBuf    []byte
 	readErr    error
 	maxMsgLen  uint32
@@ -244,8 +245,8 @@ func (d *Display) sendRequest(objectID uint32, opcode uint16, fds []int, guard f
 	}()
 
 	// Write header placeholder
-	header := make([]byte, 8)
-	_, _ = buf.Write(header)
+	var header [HeaderSize]byte
+	_, _ = buf.Write(header[:])
 
 	// Marshal arguments
 	for _, arg := range args {
@@ -266,30 +267,35 @@ func (d *Display) sendRequest(objectID uint32, opcode uint16, fds []int, guard f
 
 	// Update buffer with correct header
 	data := buf.Bytes()
-	copy(data[0:8], header)
+	copy(data[0:8], header[:])
 
 	// Send message with optional file descriptors
 	return d.sendmsgWithFDs(data, fds, guard)
+}
+
+// putUint32 appends one little-endian wire word without allocating.
+func putUint32(buf *bytes.Buffer, v uint32) {
+	var w [4]byte
+	binary.LittleEndian.PutUint32(w[:], v)
+	_, _ = buf.Write(w[:])
 }
 
 // marshalArg marshals a single argument
 func (d *Display) marshalArg(buf *bytes.Buffer, arg interface{}) error {
 	switch v := arg.(type) {
 	case uint32:
-		return binary.Write(buf, binary.LittleEndian, v)
+		putUint32(buf, v)
 	case int32:
-		return binary.Write(buf, binary.LittleEndian, v)
+		putUint32(buf, uint32(v))
 	case Fixed:
-		return binary.Write(buf, binary.LittleEndian, int32(v))
+		putUint32(buf, uint32(v))
 	case string:
 		// String format: length (including null) + string + null + padding
 		strlen := len(v) + 1
 		if strlen > 0xffff-HeaderSize {
 			return fmt.Errorf("string too long: %d bytes", strlen)
 		}
-		if err := binary.Write(buf, binary.LittleEndian, uint32(strlen)); err != nil { // Safe: checked above
-			return err
-		}
+		putUint32(buf, uint32(strlen)) // Safe: checked above
 		_, _ = buf.WriteString(v)
 		_ = buf.WriteByte(0)
 		// Pad to 32-bit boundary
@@ -303,9 +309,7 @@ func (d *Display) marshalArg(buf *bytes.Buffer, arg interface{}) error {
 		if arrlen > 0xffff-HeaderSize {
 			return fmt.Errorf("array too long: %d bytes", arrlen)
 		}
-		if err := binary.Write(buf, binary.LittleEndian, uint32(arrlen)); err != nil {
-			return err
-		}
+		putUint32(buf, uint32(arrlen))
 		_, _ = buf.Write(v)
 		// Pad to 32-bit boundary
 		padding := (4 - (arrlen % 4)) % 4
@@ -314,12 +318,13 @@ func (d *Display) marshalArg(buf *bytes.Buffer, arg interface{}) error {
 		}
 	case Object:
 		if v != nil {
-			return binary.Write(buf, binary.LittleEndian, v.ID())
+			putUint32(buf, v.ID())
+		} else {
+			putUint32(buf, 0)
 		}
-		return binary.Write(buf, binary.LittleEndian, uint32(0))
 	case nil:
 		// Null object
-		return binary.Write(buf, binary.LittleEndian, uint32(0))
+		putUint32(buf, 0)
 	case uintptr:
 		// File descriptor as uintptr - NO placeholder in message for neurlang compatibility
 		// FD is ONLY sent via SCM_RIGHTS, not in the message body
@@ -393,18 +398,20 @@ func (d *Display) maxMessageSize() uint32 {
 // nextFrame returns the next complete frame, reading more bytes as needed.
 func (d *Display) nextFrame() (receivedFrame, error) {
 	for {
-		if len(d.rbuf) >= HeaderSize {
-			object, opcode, size, err := parseHeader(d.rbuf[:HeaderSize], d.maxMessageSize())
+		buf := d.rbuf[d.rpos:]
+		if len(buf) >= HeaderSize {
+			object, opcode, size, err := parseHeader(buf[:HeaderSize], d.maxMessageSize())
 			if err != nil {
 				return receivedFrame{}, err
 			}
-			if uint32(len(d.rbuf)) >= size {
+			if uint32(len(buf)) >= size {
+				// The body aliases the receive buffer. It stays valid until
+				// the next fill, which only happens in a later Dispatch.
 				frame := receivedFrame{object: object, opcode: opcode}
 				if size > HeaderSize {
-					frame.body = make([]byte, size-HeaderSize)
-					copy(frame.body, d.rbuf[HeaderSize:size])
+					frame.body = buf[HeaderSize:size:size]
 				}
-				d.consume(size)
+				d.rpos += int(size)
 				return frame, nil
 			}
 		}
@@ -417,11 +424,8 @@ func (d *Display) nextFrame() (receivedFrame, error) {
 	}
 }
 
-// consume removes the first n bytes from the receive buffer.
-func (d *Display) consume(n uint32) {
-	rest := copy(d.rbuf, d.rbuf[n:])
-	d.rbuf = d.rbuf[:rest]
-}
+// unread reports whether received bytes remain that have not been framed.
+func (d *Display) unread() bool { return d.rpos < len(d.rbuf) }
 
 // fill reads one chunk from the connection into the receive buffer. Bytes that
 // arrive together with an error are kept so they are still parsed before the
@@ -432,6 +436,12 @@ func (d *Display) fill() error {
 	}
 	if d.recvBuf == nil {
 		d.recvBuf = make([]byte, readChunkSize)
+	}
+	// Compact once per read rather than once per frame, so framing cost does
+	// not grow with the number of buffered messages.
+	if d.rpos > 0 {
+		d.rbuf = d.rbuf[:copy(d.rbuf, d.rbuf[d.rpos:])]
+		d.rpos = 0
 	}
 	n, err := d.readChunk()
 	if n > 0 {
@@ -499,7 +509,7 @@ func (d *Display) prepareFrame(f receivedFrame) (Object, *Event, error) {
 		return nil, nil, net.ErrClosed
 	}
 	if f.object == displayObjectID {
-		if len(d.pendingFDs) != 0 && len(d.rbuf) == 0 {
+		if len(d.pendingFDs) != 0 && !d.unread() {
 			return nil, nil, &ProtocolError{Kind: "extra_fd", Err: ErrMalformedFrame}
 		}
 		return nil, nil, nil
@@ -545,7 +555,7 @@ func (d *Display) prepareFrame(f receivedFrame) (Object, *Event, error) {
 	}
 	// FDs from a single recvmsg can accompany multiple coalesced frames. Once
 	// all buffered bytes have been framed, surplus descriptors are not legal.
-	if len(d.rbuf) == 0 && len(d.pendingFDs) != 0 {
+	if !d.unread() && len(d.pendingFDs) != 0 {
 		for _, fd := range ev.fds {
 			_ = fd.Close()
 		}
