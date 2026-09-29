@@ -1,7 +1,6 @@
-// Package wlturbo provides a high-performance Wayland client implementation optimized for gaming and real-time applications.
-//
-// This package delivers sub-microsecond latency, zero-allocation hot paths, and support for 8000Hz gaming devices.
-// It's designed for video game engines, competitive gaming, and other performance-critical applications.
+// Package wlturbo is a Wayland client transport for Go: connection, framing,
+// descriptor passing, object lifecycle and the bootstrap registry. Protocol
+// bindings are generated into the protocol/ packages.
 package wlturbo
 
 import (
