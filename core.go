@@ -30,6 +30,10 @@ type BaseProxy struct {
 	context *Context
 }
 
+// eventPool recycles Events across dispatches; an Event is only valid for
+// the duration of the handler call.
+var eventPool = sync.Pool{New: func() any { return &Event{} }}
+
 // Event represents a Wayland protocol event
 type Event struct {
 	ProxyID uint32

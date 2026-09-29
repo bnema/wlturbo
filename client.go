@@ -56,20 +56,10 @@ type Display struct {
 	recvMu     sync.Mutex
 	dispatchMu sync.Mutex // serialize readers without holding receive state across handlers
 	signatures sync.Map
-	listenerMu sync.Mutex
-	listeners  sync.Map // map[uint32]map[uint16][]func([]byte)
-
-	// High-performance event dispatcher
-	dispatcher *EventDispatcher
 
 	// Core objects
 	registry *Registry
 	context  *Context // Store context once
-
-	// Error state
-	lastError     error
-	lastErrorCode uint32
-	lastErrorObj  uint32
 
 	// Connection-local receive state. rbuf holds bytes read from the socket
 	// that do not yet form a complete frame; recvBuf is the scratch buffer
@@ -86,9 +76,8 @@ type Display struct {
 // newDisplay builds a Display over an established connection.
 func newDisplay(conn net.Conn) *Display {
 	d := &Display{
-		conn:       conn,
-		nextID:     2, // 1 is reserved for wl_display
-		dispatcher: NewEventDispatcher(),
+		conn:   conn,
+		nextID: 2, // 1 is reserved for wl_display
 	}
 	if uc, ok := conn.(*net.UnixConn); ok {
 		d.unix = uc
@@ -138,7 +127,6 @@ func (c *callbackObject) Dispatch(event *Event) {
 	if event.Opcode != 0 { // done event
 		return
 	}
-	c.display.notifyListeners(c.id, 0, event.data)
 	c.display.context.Unregister(c)
 }
 
@@ -210,11 +198,6 @@ func (d *Display) Closed() bool {
 // ID returns the display's object ID (always 1)
 func (d *Display) ID() uint32 {
 	return 1
-}
-
-// RegisterEventHandler registers a high-performance event handler
-func (d *Display) RegisterEventHandler(objectID uint32, opcode uint16, handler EventHandler) {
-	d.dispatcher.RegisterHandler(objectID, opcode, handler)
 }
 
 // allocateID allocates a new object ID
@@ -481,17 +464,13 @@ type signatureProvider interface{ EventSignature(uint16) (string, bool) }
 // dispatchFrame delivers one complete frame with precisely its signature's FDs.
 func (d *Display) dispatchFrame(f receivedFrame) error {
 	d.recvMu.Lock()
-	obj, ev, kind, err := d.prepareFrame(f)
+	obj, ev, err := d.prepareFrame(f)
 	d.recvMu.Unlock()
 	if err != nil {
 		return err
 	}
-	switch kind {
-	case 1:
+	if obj == nil {
 		return d.handleDisplayEvent(f.opcode, f.body)
-	case 2:
-		d.notifyListeners(f.object, f.opcode, f.body)
-		return nil
 	}
 	defer func() {
 		for _, fd := range ev.fds {
@@ -503,47 +482,31 @@ func (d *Display) dispatchFrame(f receivedFrame) error {
 	if _, isZombie := obj.(*zombie); isZombie {
 		return nil
 	}
-	if proxy, ok := obj.(Proxy); ok {
-		proxy.Dispatch(ev)
-	} else {
-		d.dispatcher.Dispatch(f.object, f.opcode, f.body)
-		d.notifyListeners(f.object, f.opcode, f.body)
+	if r, ok := obj.(eventReceiver); ok {
+		r.Dispatch(ev)
 	}
 	return nil
 }
 
+// eventReceiver is any registered object that handles its own events:
+// generated proxies, callbacks and the registry.
+type eventReceiver interface{ Dispatch(*Event) }
+
 // prepareFrame assigns owned descriptors under recvMu, but never calls user code.
-func (d *Display) prepareFrame(f receivedFrame) (Object, *Event, uint8, error) {
+// A nil object with a nil error means the frame targets wl_display.
+func (d *Display) prepareFrame(f receivedFrame) (Object, *Event, error) {
 	if d.closed.Load() {
-		return nil, nil, 0, net.ErrClosed
+		return nil, nil, net.ErrClosed
 	}
 	if f.object == displayObjectID {
 		if len(d.pendingFDs) != 0 && len(d.rbuf) == 0 {
-			return nil, nil, 0, &ProtocolError{Kind: "extra_fd", Err: ErrMalformedFrame}
+			return nil, nil, &ProtocolError{Kind: "extra_fd", Err: ErrMalformedFrame}
 		}
-		return nil, nil, 1, nil
-	}
-	if f.object == d.registry.id {
-		var sig string
-		switch f.opcode {
-		case 0:
-			sig = "uint,string,uint,"
-		case 1:
-			sig = "uint,"
-		default:
-			return nil, nil, 0, &ProtocolError{Kind: "unknown_opcode", Object: f.object, Opcode: f.opcode, Err: ErrUnknownOpcode}
-		}
-		if err := validateEventBody(sig, f.body); err != nil {
-			return nil, nil, 0, &ProtocolError{Kind: "malformed_payload", Object: f.object, Opcode: f.opcode, Err: err}
-		}
-		if len(d.pendingFDs) != 0 && len(d.rbuf) == 0 {
-			return nil, nil, 0, &ProtocolError{Kind: "extra_fd", Object: f.object, Opcode: f.opcode, Err: ErrMalformedFrame}
-		}
-		return nil, nil, 2, nil
+		return nil, nil, nil
 	}
 	obj, ok := d.objects.Load(f.object)
 	if !ok {
-		return nil, nil, 0, &ProtocolError{Kind: "unknown_object", Object: f.object, Opcode: f.opcode, Err: ErrUnknownObject}
+		return nil, nil, &ProtocolError{Kind: "unknown_object", Object: f.object, Opcode: f.opcode, Err: ErrUnknownObject}
 	}
 	sigObj := obj
 	z, isZombie := obj.(*zombie)
@@ -562,14 +525,14 @@ func (d *Display) prepareFrame(f receivedFrame) (Object, *Event, uint8, error) {
 		}
 	}
 	if !valid {
-		return nil, nil, 0, &ProtocolError{Kind: "unknown_opcode", Object: f.object, Opcode: f.opcode, Err: ErrUnknownOpcode}
+		return nil, nil, &ProtocolError{Kind: "unknown_opcode", Object: f.object, Opcode: f.opcode, Err: ErrUnknownOpcode}
 	}
 	if err := validateEventBody(sig, f.body); err != nil {
-		return nil, nil, 0, &ProtocolError{Kind: "malformed_payload", Object: f.object, Opcode: f.opcode, Err: err}
+		return nil, nil, &ProtocolError{Kind: "malformed_payload", Object: f.object, Opcode: f.opcode, Err: err}
 	}
 	count := strings.Count(sig, "fd,")
 	if len(d.pendingFDs) < count {
-		return nil, nil, 0, &ProtocolError{Kind: "missing_fd", Object: f.object, Opcode: f.opcode, Err: ErrMalformedFrame}
+		return nil, nil, &ProtocolError{Kind: "missing_fd", Object: f.object, Opcode: f.opcode, Err: ErrMalformedFrame}
 	}
 	ev := eventPool.Get().(*Event)
 	*ev = Event{ProxyID: f.object, Opcode: f.opcode, data: f.body, display: d}
@@ -588,11 +551,11 @@ func (d *Display) prepareFrame(f receivedFrame) (Object, *Event, uint8, error) {
 		}
 		*ev = Event{}
 		eventPool.Put(ev)
-		return nil, nil, 0, &ProtocolError{Kind: "extra_fd", Object: f.object, Opcode: f.opcode, Err: ErrMalformedFrame}
+		return nil, nil, &ProtocolError{Kind: "extra_fd", Object: f.object, Opcode: f.opcode, Err: ErrMalformedFrame}
 	}
 	// For a zombie the descriptors were still consumed above so the stream
 	// stays aligned; dispatchFrame closes them without running any handler.
-	return obj.(Object), ev, 0, nil
+	return obj.(Object), ev, nil
 }
 
 type signatureKey struct {
@@ -609,27 +572,6 @@ func (d *Display) RegisterEventSignature(object uint32, opcode uint16, signature
 	d.signatures.Store(signatureKey{object, opcode}, signature)
 }
 
-// notifyListeners runs the listeners registered for an object and opcode.
-func (d *Display) notifyListeners(objectID uint32, opcode uint16, body []byte) {
-	listeners, ok := d.listeners.Load(objectID)
-	if !ok {
-		return
-	}
-	opcodeMap, ok := listeners.(*sync.Map)
-	if !ok {
-		return
-	}
-	handlers, ok := opcodeMap.Load(opcode)
-	if !ok {
-		return
-	}
-	for _, handler := range handlers.([]func([]byte)) {
-		if handler != nil {
-			handler(body)
-		}
-	}
-}
-
 // handleDisplayEvent handles events on the display object
 func (d *Display) handleDisplayEvent(opcode uint16, data []byte) error {
 	switch opcode {
@@ -640,12 +582,7 @@ func (d *Display) handleDisplayEvent(opcode uint16, data []byte) error {
 		event := &Event{ProxyID: displayObjectID, Opcode: opcode, data: data, display: d}
 		objectID := event.Uint32()
 		code := event.Uint32()
-		message := event.String()
-
-		d.lastErrorCode = code
-		d.lastErrorObj = objectID
-		d.lastError = &DisplayError{ObjectID: objectID, Code: code, Message: message}
-		return d.lastError
+		return &DisplayError{ObjectID: objectID, Code: code, Message: event.String()}
 
 	case 1: // delete_id
 		if len(data) != 4 {
@@ -692,35 +629,9 @@ func (d *Display) Roundtrip() error {
 	}
 }
 
-// AddListener adds an event listener for an object
-func (d *Display) AddListener(objectID uint32, opcode uint16, handler func([]byte)) {
-	if handler == nil {
-		return
-	}
-	// Load or create listener map for object
-	listeners, _ := d.listeners.LoadOrStore(objectID, &sync.Map{})
-	opcodeMap := listeners.(*sync.Map)
-
-	d.listenerMu.Lock()
-	defer d.listenerMu.Unlock()
-	var handlers []func([]byte)
-	if old, ok := opcodeMap.Load(opcode); ok {
-		handlers = old.([]func([]byte))
-	}
-	next := make([]func([]byte), len(handlers)+1)
-	copy(next, handlers)
-	next[len(handlers)] = handler
-	opcodeMap.Store(opcode, next)
-}
-
-// getRegistry gets the global registry
+// getRegistry sends wl_display.get_registry for the bootstrap registry.
 func (d *Display) getRegistry() error {
-	// Add registry listeners
-	d.AddListener(d.registry.id, 0, d.registry.handleGlobal)
-	d.AddListener(d.registry.id, 1, d.registry.handleGlobalRemove)
-
-	// Send get_registry request (opcode 1)
-	return d.SendRequest(1, 1, d.registry.id)
+	return d.SendRequest(displayObjectID, 1, d.registry.id)
 }
 
 // Registry returns the global registry
@@ -733,59 +644,40 @@ func (r *Registry) ID() uint32 {
 	return r.id
 }
 
-// handleGlobal handles global announcements
-func (r *Registry) handleGlobal(data []byte) {
-	if len(data) < 8 {
-		return
+// EventSignature reports the wl_registry event signatures.
+func (r *Registry) EventSignature(opcode uint16) (string, bool) {
+	switch opcode {
+	case 0:
+		return "uint,string,uint,", true
+	case 1:
+		return "uint,", true
 	}
+	return "", false
+}
 
-	name := binary.LittleEndian.Uint32(data[0:4])
-	ifaceLen := binary.LittleEndian.Uint32(data[4:8])
-
-	if ifaceLen == 0 || uint64(ifaceLen)+12 > uint64(len(data)) || data[8+ifaceLen-1] != 0 {
-		return
+// Dispatch handles wl_registry.global and wl_registry.global_remove. The
+// transport has already validated the body against EventSignature.
+func (r *Registry) Dispatch(event *Event) {
+	switch event.Opcode {
+	case 0:
+		r.handleGlobal(event.Uint32(), event.String(), event.Uint32())
+	case 1:
+		r.handleGlobalRemove(event.Uint32())
 	}
+}
 
-	// String includes null terminator in length
-	iface := string(data[8 : 8+ifaceLen-1]) // -1 to remove null terminator
-
-	// Calculate padding for 32-bit alignment
-	padding := (4 - (ifaceLen % 4)) % 4
-	versionOffset := 8 + int(ifaceLen) + int(padding)
-
-	if len(data) != versionOffset+4 {
-		return
-	}
-
-	version := binary.LittleEndian.Uint32(data[versionOffset:])
-
-	// Store global
+func (r *Registry) handleGlobal(name uint32, iface string, version uint32) {
 	r.mu.Lock()
-	r.globals[name] = Global{
-		Name:      name,
-		Interface: iface,
-		Version:   version,
-	}
-	r.mu.Unlock()
-
-	// Call specific handler if registered
-	r.mu.RLock()
+	r.globals[name] = Global{Name: name, Interface: iface, Version: version}
 	handlers := append([]GlobalHandler(nil), r.handlers[iface]...)
 	handlers = append(handlers, r.handlers["*"]...)
-	r.mu.RUnlock()
+	r.mu.Unlock()
 	for _, handler := range handlers {
 		handler(r, name, version)
 	}
 }
 
-// handleGlobalRemove handles global removal
-func (r *Registry) handleGlobalRemove(data []byte) {
-	if len(data) < 4 {
-		return
-	}
-
-	name := binary.LittleEndian.Uint32(data[0:4])
-
+func (r *Registry) handleGlobalRemove(name uint32) {
 	r.mu.Lock()
 	delete(r.globals, name)
 	handlers := append([]RegistryGlobalRemoveHandler(nil), r.removeHandlers...)

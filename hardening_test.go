@@ -51,7 +51,7 @@ func TestRegistryGlobalHandlersAccumulate(t *testing.T) {
 	d.registry.AddGlobalHandler(countingGlobalHandler{&a})
 	d.registry.AddGlobalHandler(countingGlobalHandler{&b})
 	d.registry.AddHandler("abc", func(*Registry, uint32, uint32) { specific++ })
-	d.registry.handleGlobal([]byte{1, 0, 0, 0, 4, 0, 0, 0, 'a', 'b', 'c', 0, 1, 0, 0, 0})
+	d.registry.handleGlobal(1, "abc", 1)
 	if a != 1 || b != 1 || specific != 1 {
 		t.Fatalf("calls a=%d b=%d specific=%d, want 1 each", a, b, specific)
 	}

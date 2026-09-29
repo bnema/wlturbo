@@ -40,86 +40,6 @@ func TestFixed(t *testing.T) {
 	}
 }
 
-func TestEventPool(t *testing.T) {
-	// Test that the global event pool works without requiring a compositor
-	// Get an event
-	event := eventPool.Get().(*Event)
-	if event == nil {
-		t.Fatal("Expected event from pool, got nil")
-	}
-
-	// Set some data
-	event.ProxyID = 123
-	event.Opcode = 456
-
-	// Return to pool
-	eventPool.Put(event)
-
-	// Get another event - should be reused
-	event2 := eventPool.Get().(*Event)
-	if event2 == nil {
-		t.Fatal("Expected reused event from pool, got nil")
-	}
-
-	// The pool might return a clean event or the same one, both are valid
-	t.Logf("Event2: ProxyID=%d, Opcode=%d", event2.ProxyID, event2.Opcode)
-
-	// Clean up
-	eventPool.Put(event2)
-}
-
-func TestEventDispatcher(t *testing.T) {
-	dispatcher := NewEventDispatcher()
-
-	called := false
-	handler := func(event *Event) {
-		called = true
-		if event.ProxyID != 123 || event.Opcode != 1 {
-			t.Errorf("Expected ProxyID=123, Opcode=1, got ProxyID=%d, Opcode=%d", event.ProxyID, event.Opcode)
-		}
-	}
-
-	// Register handler
-	dispatcher.RegisterHandler(123, 1, handler)
-
-	// Dispatch event
-	dispatcher.Dispatch(123, 1, []byte{})
-
-	if !called {
-		t.Error("Handler should have been called")
-	}
-}
-
-func TestEventDispatcherMultipleHandlers(t *testing.T) {
-	dispatcher := NewEventDispatcher()
-
-	called1 := false
-	called2 := false
-
-	handler1 := func(event *Event) {
-		called1 = true
-	}
-
-	handler2 := func(event *Event) {
-		called2 = true
-	}
-
-	// Register handlers for different opcodes
-	dispatcher.RegisterHandler(123, 1, handler1)
-	dispatcher.RegisterHandler(123, 2, handler2)
-
-	// Dispatch different events
-	dispatcher.Dispatch(123, 1, []byte{})
-	dispatcher.Dispatch(123, 2, []byte{})
-
-	if !called1 {
-		t.Error("Handler1 should have been called")
-	}
-	if !called2 {
-		t.Error("Handler2 should have been called")
-	}
-}
-
 func TestMessageMarshalingBasic(t *testing.T) {
 	// Create a display to test marshaling (without connecting)
 	d := &Display{
@@ -336,24 +256,6 @@ func TestRegistryGlobalStorage(t *testing.T) {
 	_, exists = registry.FindGlobal("non_existent")
 	if exists {
 		t.Error("non_existent should not be found")
-	}
-}
-
-func BenchmarkEventDispatch(b *testing.B) {
-	dispatcher := NewEventDispatcher()
-
-	handler := func(event *Event) {
-		// Minimal handler for benchmarking
-	}
-
-	// Register handler
-	dispatcher.RegisterHandler(123, 1, handler)
-
-	data := []byte{0x01, 0x02, 0x03, 0x04}
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		dispatcher.Dispatch(123, 1, data)
 	}
 }
 
