@@ -177,3 +177,38 @@ func TestUnregisterKeepsZombie(t *testing.T) {
 		t.Fatalf("object = %T, want *zombie", obj)
 	}
 }
+
+// Context.Request owns the request lifecycle generated code relies on.
+func TestContextRequestLifecycle(t *testing.T) {
+	d := newDisplay(&chunkConn{})
+	parent := &BaseProxy{id: d.AllocateID(), context: d.context, version: 2}
+	d.context.Register(parent)
+
+	child := &BaseProxy{context: d.context}
+	if err := d.context.Request(Request{Proxy: parent, Opcode: 0, Name: "x.make", Child: child}, child); err != nil {
+		t.Fatal(err)
+	}
+	if child.ID() == 0 || child.Version() != 2 {
+		t.Fatalf("child id=%d version=%d, want allocated id and version 2", child.ID(), child.Version())
+	}
+	if _, ok := d.objects.Load(child.ID()); !ok {
+		t.Fatal("child not registered")
+	}
+
+	late := &BaseProxy{context: d.context}
+	err := d.context.Request(Request{Proxy: parent, Opcode: 1, Name: "x.late", Since: 3, Child: late}, late)
+	if !errors.Is(err, ErrVersionTooLow) {
+		t.Fatalf("since=3 on v2 = %v, want ErrVersionTooLow", err)
+	}
+	if late.ID() != 0 {
+		t.Fatal("child allocated for a refused request")
+	}
+
+	bad := &BaseProxy{context: d.context}
+	if err := d.context.Request(Request{Proxy: parent, Opcode: 2, Name: "x.bad", Child: bad}, bad, 42); err == nil {
+		t.Fatal("marshal error not reported")
+	}
+	if _, ok := d.objects.Load(bad.ID()); ok {
+		t.Fatal("child left registered after a failed send")
+	}
+}

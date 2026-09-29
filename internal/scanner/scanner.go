@@ -191,15 +191,14 @@ type requestData struct {
 	Params          string
 	Results         string
 	ArgPreparations []string
-	ArgExprs        []string
 	CreatesChild    bool
 	ChildVar        string
 	ChildType       string
 	ChildFactory    string
 	ErrorReturn     string
-	FDArgs          []string
 	HasFDs          bool
-	SendCall        string
+	FDList          string
+	ArgList         string
 }
 
 // argSlot is one positional argument of a request, in declaration order. A
@@ -457,7 +456,6 @@ func (s *Scanner) processRequest(iface Interface, req Request, opcode int) (requ
 			// them, and the descriptor list is attached to the request.
 			params = append(params, name+" int")
 			fdExprs = append(fdExprs, name)
-			data.FDArgs = append(data.FDArgs, name)
 			expr = "uintptr(" + name + ")"
 
 		default:
@@ -488,23 +486,16 @@ func (s *Scanner) processRequest(iface Interface, req Request, opcode int) (requ
 	}
 
 	data.Params = strings.Join(params, ", ")
-	data.ArgExprs = argExprs
 	args := ""
 	if len(argExprs) > 0 {
 		args = ", " + strings.Join(argExprs, ", ")
 	}
-	// Destructors claim the proxy atomically before sending so a concurrent
-	// second destroy cannot reach the wire.
-	send := "SendRequest"
-	if data.Destructor {
-		send = "SendDestructor"
-	}
-	if len(fdExprs) > 0 {
-		data.HasFDs = true
-		data.SendCall = fmt.Sprintf("%sWithFDs(o, %d, []int{%s}%s)", send, opcode, strings.Join(fdExprs, ", "), args)
-	} else {
-		data.SendCall = fmt.Sprintf("%s(o, %d%s)", send, opcode, args)
-	}
+	// Context.Request owns the lifecycle: destructors claim the proxy
+	// atomically, children are registered before the send and descriptors are
+	// closed only after a successful send.
+	data.ArgList = args
+	data.FDList = strings.Join(fdExprs, ", ")
+	data.HasFDs = len(fdExprs) > 0
 	if data.CreatesChild {
 		data.Results = "(*" + data.ChildType + ", error)"
 		data.ErrorReturn = "nil, err"

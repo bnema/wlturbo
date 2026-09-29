@@ -51,10 +51,7 @@ func NewWpLinuxDrmSyncobjManager(ctx *wl.Context) *WpLinuxDrmSyncobjManager {
 
 // Destroy this explicit synchronization factory object. Other objects shall not be affected by this request.
 func (o *WpLinuxDrmSyncobjManager) Destroy() error {
-	if err := o.Context().CheckProxy(o); err != nil {
-		return err
-	}
-	if err := o.Context().SendDestructor(o, 0); err != nil {
+	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 0, Name: "wp_linux_drm_syncobj_manager_v1.destroy", Destructor: true}); err != nil {
 		return err
 	}
 	return nil
@@ -62,20 +59,13 @@ func (o *WpLinuxDrmSyncobjManager) Destroy() error {
 
 // Instantiate an interface extension for the given wl_surface to provide explicit synchronization. If the given wl_surface already has an explicit synchronization object associated, the surface_exists protocol error is raised. Graphics APIs, like EGL or Vulkan, that manage the buffer queue and commits of a wl_surface themselves, are likely to be using this extension internally. If a client is using such an API for a wl_surface, it should not directly use this extension on that surface, to avoid raising a surface_exists protocol error.
 func (o *WpLinuxDrmSyncobjManager) GetSurface(surface *cross_wl_surface.Surface) (*WpLinuxDrmSyncobjSurface, error) {
-	if err := o.Context().CheckProxy(o); err != nil {
-		return nil, err
-	}
 	var arg1 wl.Object
 	if surface != nil {
 		arg1 = surface
 	}
 	child := &WpLinuxDrmSyncobjSurface{}
 	child.SetContext(o.Context())
-	child.SetID(o.Context().AllocateID())
-	child.SetVersion(o.Version())
-	o.Context().Register(child)
-	if err := o.Context().SendRequest(o, 1, child, arg1); err != nil {
-		o.Context().Unregister(child)
+	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 1, Name: "wp_linux_drm_syncobj_manager_v1.get_surface", Child: child}, child, arg1); err != nil {
 		return nil, err
 	}
 	return child, nil
@@ -83,19 +73,11 @@ func (o *WpLinuxDrmSyncobjManager) GetSurface(surface *cross_wl_surface.Surface)
 
 // Import a DRM synchronization object timeline. If the FD cannot be imported, the invalid_timeline error is raised.
 func (o *WpLinuxDrmSyncobjManager) ImportTimeline(fd int) (*WpLinuxDrmSyncobjTimeline, error) {
-	if err := o.Context().CheckProxy(o); err != nil {
-		return nil, err
-	}
 	child := &WpLinuxDrmSyncobjTimeline{}
 	child.SetContext(o.Context())
-	child.SetID(o.Context().AllocateID())
-	child.SetVersion(o.Version())
-	o.Context().Register(child)
-	if err := o.Context().SendRequestWithFDs(o, 2, []int{fd}, child, uintptr(fd)); err != nil {
-		o.Context().Unregister(child)
+	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 2, Name: "wp_linux_drm_syncobj_manager_v1.import_timeline", Child: child, FDs: []int{fd}}, child, uintptr(fd)); err != nil {
 		return nil, err
 	}
-	_ = wl.CloseSentFD(fd)
 	return child, nil
 }
 
@@ -132,10 +114,7 @@ func NewWpLinuxDrmSyncobjTimeline(ctx *wl.Context) *WpLinuxDrmSyncobjTimeline {
 
 // Destroy the synchronization object timeline. Other objects are not affected by this request, in particular timeline points set by set_acquire_point and set_release_point are not unset.
 func (o *WpLinuxDrmSyncobjTimeline) Destroy() error {
-	if err := o.Context().CheckProxy(o); err != nil {
-		return err
-	}
-	if err := o.Context().SendDestructor(o, 0); err != nil {
+	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 0, Name: "wp_linux_drm_syncobj_timeline_v1.destroy", Destructor: true}); err != nil {
 		return err
 	}
 	return nil
@@ -174,10 +153,7 @@ func NewWpLinuxDrmSyncobjSurface(ctx *wl.Context) *WpLinuxDrmSyncobjSurface {
 
 // Destroy this surface synchronization object. Any timeline point set by this object with set_acquire_point or set_release_point since the last commit may be discarded by the compositor. Any timeline point set by this object before the last commit will not be affected.
 func (o *WpLinuxDrmSyncobjSurface) Destroy() error {
-	if err := o.Context().CheckProxy(o); err != nil {
-		return err
-	}
-	if err := o.Context().SendDestructor(o, 0); err != nil {
+	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 0, Name: "wp_linux_drm_syncobj_surface_v1.destroy", Destructor: true}); err != nil {
 		return err
 	}
 	return nil
@@ -185,14 +161,11 @@ func (o *WpLinuxDrmSyncobjSurface) Destroy() error {
 
 // Set the timeline point that must be signalled before the compositor may sample from the buffer attached with wl_surface.attach. The 64-bit unsigned value combined from point_hi and point_lo is the point value. The acquire point is double-buffered state, and will be applied on the next wl_surface.commit request for the associated surface. Thus, it applies only to the buffer that is attached to the surface at commit time. If an acquire point has already been attached during the same commit cycle, the new point replaces the old one. If the associated wl_surface was destroyed, a no_surface error is raised. If at surface commit time there is a pending acquire timeline point set but no pending buffer attached, a no_buffer error is raised. If at surface commit time there is a pending buffer attached but no pending acquire timeline point set, the no_acquire_point protocol error is raised.
 func (o *WpLinuxDrmSyncobjSurface) SetAcquirePoint(timeline *WpLinuxDrmSyncobjTimeline, pointHi uint32, pointLo uint32) error {
-	if err := o.Context().CheckProxy(o); err != nil {
-		return err
-	}
 	var arg0 wl.Object
 	if timeline != nil {
 		arg0 = timeline
 	}
-	if err := o.Context().SendRequest(o, 1, arg0, pointHi, pointLo); err != nil {
+	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 1, Name: "wp_linux_drm_syncobj_surface_v1.set_acquire_point"}, arg0, pointHi, pointLo); err != nil {
 		return err
 	}
 	return nil
@@ -200,14 +173,11 @@ func (o *WpLinuxDrmSyncobjSurface) SetAcquirePoint(timeline *WpLinuxDrmSyncobjTi
 
 // Set the timeline point that must be signalled by the compositor when it has finished its usage of the buffer attached with wl_surface.attach for the relevant commit. Once the timeline point is signaled, and assuming the associated buffer is not pending release from other wl_surface.commit requests, no additional explicit or implicit synchronization with the compositor is required to safely re-use the buffer. Note that clients cannot rely on the release point being always signaled after the acquire point: compositors may release buffers without ever reading from them. In addition, the compositor may use different presentation paths for different commits, which may have different release behavior. As a result, the compositor may signal the release points in a different order than the client committed them. Because signaling a timeline point also signals every previous point, it is generally not safe to use the same timeline object for the release points of multiple buffers. The out-of-order signaling described above may lead to a release point being signaled before the compositor has finished reading. To avoid this, it is strongly recommended that each buffer should use a separate timeline for its release points. The 64-bit unsigned value combined from point_hi and point_lo is the point value. The release point is double-buffered state, and will be applied on the next wl_surface.commit request for the associated surface. Thus, it applies only to the buffer that is attached to the surface at commit time. If a release point has already been attached during the same commit cycle, the new point replaces the old one. If the associated wl_surface was destroyed, a no_surface error is raised. If at surface commit time there is a pending release timeline point set but no pending buffer attached, a no_buffer error is raised. If at surface commit time there is a pending buffer attached but no pending release timeline point set, the no_release_point protocol error is raised.
 func (o *WpLinuxDrmSyncobjSurface) SetReleasePoint(timeline *WpLinuxDrmSyncobjTimeline, pointHi uint32, pointLo uint32) error {
-	if err := o.Context().CheckProxy(o); err != nil {
-		return err
-	}
 	var arg0 wl.Object
 	if timeline != nil {
 		arg0 = timeline
 	}
-	if err := o.Context().SendRequest(o, 2, arg0, pointHi, pointLo); err != nil {
+	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 2, Name: "wp_linux_drm_syncobj_surface_v1.set_release_point"}, arg0, pointHi, pointLo); err != nil {
 		return err
 	}
 	return nil

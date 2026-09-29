@@ -96,6 +96,58 @@ func (c *Context) CheckProxy(proxy Proxy) error {
 	return nil
 }
 
+// Request describes one protocol request for Context.Request.
+type Request struct {
+	Proxy      Proxy
+	Opcode     uint32
+	Name       string // interface.request, used in errors
+	Since      uint32 // version that introduced the request; 0 or 1 means always
+	Destructor bool   // claim the proxy exactly once, as SendDestructor does
+	Child      Proxy  // new_id object created by this request, or nil
+	FDs        []int  // descriptors to attach; closed after a successful send
+}
+
+// Request runs one request with its whole lifecycle: it checks the proxy and
+// version, allocates and registers Child (inheriting the parent's version),
+// sends, and then either closes the sent descriptors or, on error,
+// unregisters Child and leaves the descriptors with the caller. Child must
+// already have this context; it is passed in args at its wire position.
+func (c *Context) Request(r Request, args ...interface{}) error {
+	if err := c.CheckProxy(r.Proxy); err != nil {
+		return err
+	}
+	if v, ok := r.Proxy.(interface{ Version() uint32 }); ok {
+		if err := CheckVersion(v.Version(), r.Since, r.Name); err != nil {
+			return err
+		}
+	}
+	if r.Child != nil {
+		r.Child.SetID(c.AllocateID())
+		if v, ok := r.Proxy.(interface{ Version() uint32 }); ok {
+			if s, ok := r.Child.(interface{ SetVersion(uint32) }); ok {
+				s.SetVersion(v.Version())
+			}
+		}
+		c.Register(r.Child)
+	}
+	var err error
+	if r.Destructor {
+		err = c.SendDestructorWithFDs(r.Proxy, r.Opcode, r.FDs, args...)
+	} else {
+		err = c.SendRequestWithFDs(r.Proxy, r.Opcode, r.FDs, args...)
+	}
+	if err != nil {
+		if r.Child != nil {
+			c.Unregister(r.Child)
+		}
+		return err
+	}
+	for _, fd := range r.FDs {
+		_ = CloseSentFD(fd)
+	}
+	return nil
+}
+
 // SendDestructor sends a destructor request exactly once. The proxy is
 // claimed (unregistered) under the connection send lock, after marshaling
 // and immediately before the write: concurrent destructors and later requests

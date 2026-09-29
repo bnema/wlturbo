@@ -32,10 +32,7 @@ func NewWpFractionalScaleManager(ctx *wl.Context) *WpFractionalScaleManager {
 
 // Informs the server that the client will not be using this protocol object anymore. This does not affect any other objects, wp_fractional_scale_v1 objects included.
 func (o *WpFractionalScaleManager) Destroy() error {
-	if err := o.Context().CheckProxy(o); err != nil {
-		return err
-	}
-	if err := o.Context().SendDestructor(o, 0); err != nil {
+	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 0, Name: "wp_fractional_scale_manager_v1.destroy", Destructor: true}); err != nil {
 		return err
 	}
 	return nil
@@ -43,20 +40,13 @@ func (o *WpFractionalScaleManager) Destroy() error {
 
 // Create an add-on object for the the wl_surface to let the compositor request fractional scales. If the given wl_surface already has a wp_fractional_scale_v1 object associated, the fractional_scale_exists protocol error is raised.
 func (o *WpFractionalScaleManager) GetFractionalScale(surface *cross_wl_surface.Surface) (*WpFractionalScale, error) {
-	if err := o.Context().CheckProxy(o); err != nil {
-		return nil, err
-	}
 	var arg1 wl.Object
 	if surface != nil {
 		arg1 = surface
 	}
 	child := &WpFractionalScale{}
 	child.SetContext(o.Context())
-	child.SetID(o.Context().AllocateID())
-	child.SetVersion(o.Version())
-	o.Context().Register(child)
-	if err := o.Context().SendRequest(o, 1, child, arg1); err != nil {
-		o.Context().Unregister(child)
+	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 1, Name: "wp_fractional_scale_manager_v1.get_fractional_scale", Child: child}, child, arg1); err != nil {
 		return nil, err
 	}
 	return child, nil
@@ -99,10 +89,7 @@ func NewWpFractionalScale(ctx *wl.Context) *WpFractionalScale {
 
 // Destroy the fractional scale object. When this object is destroyed, preferred_scale events will no longer be sent.
 func (o *WpFractionalScale) Destroy() error {
-	if err := o.Context().CheckProxy(o); err != nil {
-		return err
-	}
-	if err := o.Context().SendDestructor(o, 0); err != nil {
+	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 0, Name: "wp_fractional_scale_v1.destroy", Destructor: true}); err != nil {
 		return err
 	}
 	return nil

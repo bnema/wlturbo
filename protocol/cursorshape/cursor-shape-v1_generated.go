@@ -139,10 +139,7 @@ func NewWpCursorShapeManager(ctx *wl.Context) *WpCursorShapeManager {
 
 // Destroy the cursor shape manager.
 func (o *WpCursorShapeManager) Destroy() error {
-	if err := o.Context().CheckProxy(o); err != nil {
-		return err
-	}
-	if err := o.Context().SendDestructor(o, 0); err != nil {
+	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 0, Name: "wp_cursor_shape_manager_v1.destroy", Destructor: true}); err != nil {
 		return err
 	}
 	return nil
@@ -150,20 +147,13 @@ func (o *WpCursorShapeManager) Destroy() error {
 
 // Obtain a wp_cursor_shape_device_v1 for a wl_pointer object. When the pointer capability is removed from the wl_seat, the wp_cursor_shape_device_v1 object becomes inert.
 func (o *WpCursorShapeManager) GetPointer(pointer *cross_wl_pointer.Pointer) (*WpCursorShapeDevice, error) {
-	if err := o.Context().CheckProxy(o); err != nil {
-		return nil, err
-	}
 	var arg1 wl.Object
 	if pointer != nil {
 		arg1 = pointer
 	}
 	child := &WpCursorShapeDevice{}
 	child.SetContext(o.Context())
-	child.SetID(o.Context().AllocateID())
-	child.SetVersion(o.Version())
-	o.Context().Register(child)
-	if err := o.Context().SendRequest(o, 1, child, arg1); err != nil {
-		o.Context().Unregister(child)
+	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 1, Name: "wp_cursor_shape_manager_v1.get_pointer", Child: child}, child, arg1); err != nil {
 		return nil, err
 	}
 	return child, nil
@@ -171,20 +161,13 @@ func (o *WpCursorShapeManager) GetPointer(pointer *cross_wl_pointer.Pointer) (*W
 
 // Obtain a wp_cursor_shape_device_v1 for a zwp_tablet_tool_v2 object. When the zwp_tablet_tool_v2 is removed, the wp_cursor_shape_device_v1 object becomes inert.
 func (o *WpCursorShapeManager) GetTabletTool(tabletTool *cross_zwp_tablet_tool_v2.TabletTool) (*WpCursorShapeDevice, error) {
-	if err := o.Context().CheckProxy(o); err != nil {
-		return nil, err
-	}
 	var arg1 wl.Object
 	if tabletTool != nil {
 		arg1 = tabletTool
 	}
 	child := &WpCursorShapeDevice{}
 	child.SetContext(o.Context())
-	child.SetID(o.Context().AllocateID())
-	child.SetVersion(o.Version())
-	o.Context().Register(child)
-	if err := o.Context().SendRequest(o, 2, child, arg1); err != nil {
-		o.Context().Unregister(child)
+	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 2, Name: "wp_cursor_shape_manager_v1.get_tablet_tool_v2", Child: child}, child, arg1); err != nil {
 		return nil, err
 	}
 	return child, nil
@@ -223,10 +206,7 @@ func NewWpCursorShapeDevice(ctx *wl.Context) *WpCursorShapeDevice {
 
 // Destroy the cursor shape device. The device cursor shape remains unchanged.
 func (o *WpCursorShapeDevice) Destroy() error {
-	if err := o.Context().CheckProxy(o); err != nil {
-		return err
-	}
-	if err := o.Context().SendDestructor(o, 0); err != nil {
+	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 0, Name: "wp_cursor_shape_device_v1.destroy", Destructor: true}); err != nil {
 		return err
 	}
 	return nil
@@ -234,10 +214,7 @@ func (o *WpCursorShapeDevice) Destroy() error {
 
 // Sets the device cursor to the specified shape. The compositor will change the cursor image based on the specified shape. The cursor actually changes only if the input device focus is one of the requesting client's surfaces. If any, the previous cursor image (surface or shape) is replaced. The "shape" argument must be a valid enum entry, otherwise the invalid_shape protocol error is raised. This is similar to the wl_pointer.set_cursor and zwp_tablet_tool_v2.set_cursor requests, but this request accepts a shape instead of contents in the form of a surface. Clients can mix set_cursor and set_shape requests. The serial parameter must match the latest wl_pointer.enter or zwp_tablet_tool_v2.proximity_in serial number sent to the client. Otherwise the request will be ignored.
 func (o *WpCursorShapeDevice) SetShape(serial uint32, shape uint32) error {
-	if err := o.Context().CheckProxy(o); err != nil {
-		return err
-	}
-	if err := o.Context().SendRequest(o, 1, serial, shape); err != nil {
+	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 1, Name: "wp_cursor_shape_device_v1.set_shape"}, serial, shape); err != nil {
 		return err
 	}
 	return nil
