@@ -101,7 +101,7 @@ func newDisplay(conn net.Conn) *Display {
 		id:       d.allocateID(),
 		display:  d,
 		globals:  make(map[uint32]Global),
-		handlers: make(map[string]GlobalHandler),
+		handlers: make(map[string][]GlobalHandler),
 	}
 	d.objects.Store(d.registry.id, d.registry)
 	return d
@@ -113,7 +113,7 @@ type Registry struct {
 	display        *Display
 	globals        map[uint32]Global
 	mu             sync.RWMutex
-	handlers       map[string]GlobalHandler
+	handlers       map[string][]GlobalHandler
 	removeHandlers []RegistryGlobalRemoveHandler
 }
 
@@ -337,10 +337,6 @@ func (d *Display) marshalArg(buf *bytes.Buffer, arg interface{}) error {
 	case nil:
 		// Null object
 		return binary.Write(buf, binary.LittleEndian, uint32(0))
-	case int:
-		// File descriptor - write placeholder in message
-		// Actual FD will be sent via SCM_RIGHTS
-		return binary.Write(buf, binary.LittleEndian, uint32(0))
 	case uintptr:
 		// File descriptor as uintptr - NO placeholder in message for neurlang compatibility
 		// FD is ONLY sent via SCM_RIGHTS, not in the message body
@@ -357,7 +353,12 @@ func (d *Display) marshalArg(buf *bytes.Buffer, arg interface{}) error {
 // Read boundaries never define message boundaries: a header split across
 // several reads and several messages arriving in one read are both handled.
 // Dispatch returns net.ErrClosed after Close, a typed ProtocolError for a
-// malformed frame, and io.ErrUnexpectedEOF when the peer closes mid-frame.
+// malformed frame, io.ErrUnexpectedEOF when the peer closes mid-frame, and
+// os.ErrDeadlineExceeded (not sticky) when a read deadline expires.
+//
+// Event handlers run while Dispatch holds the dispatch lock, so a handler must
+// not call Dispatch or Roundtrip on the same Display: that call deadlocks.
+// Hand work that needs a roundtrip to another goroutine instead.
 func (d *Display) Dispatch() error {
 	d.dispatchMu.Lock()
 	defer d.dispatchMu.Unlock()
@@ -456,6 +457,11 @@ func (d *Display) fill() error {
 	if err != nil {
 		if errors.Is(err, io.EOF) {
 			err = io.ErrUnexpectedEOF
+		}
+		// A missed deadline is not a broken stream: report it without making
+		// it sticky, so a later Dispatch can read again.
+		if errors.Is(err, os.ErrDeadlineExceeded) {
+			return err
 		}
 		d.readErr = err
 		// A control-message failure corrupts the descriptor stream, so it is
@@ -750,18 +756,11 @@ func (r *Registry) handleGlobal(data []byte) {
 
 	// Call specific handler if registered
 	r.mu.RLock()
-	handler, specific := r.handlers[iface]
-	wildcard, all := r.handlers["*"]
+	handlers := append([]GlobalHandler(nil), r.handlers[iface]...)
+	handlers = append(handlers, r.handlers["*"]...)
 	r.mu.RUnlock()
-	if specific {
-
+	for _, handler := range handlers {
 		handler(r, name, version)
-	}
-
-	// Call wildcard handler if registered
-	if all {
-
-		wildcard(r, name, version)
 	}
 }
 
@@ -782,11 +781,16 @@ func (r *Registry) handleGlobalRemove(data []byte) {
 	}
 }
 
-// AddHandler adds a handler for a specific interface
+// AddHandler adds a handler for a specific interface, or "*" for every
+// interface. Handlers accumulate; each announced global calls all of them in
+// registration order.
 func (r *Registry) AddHandler(iface string, handler GlobalHandler) {
+	if handler == nil {
+		return
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.handlers[iface] = handler
+	r.handlers[iface] = append(r.handlers[iface], handler)
 }
 
 // ErrGlobalNotFound reports that the compositor does not announce a global.
