@@ -6,4 +6,6 @@ package protocol
 //go:generate go run ../cmd/wlturbo-scanner -p drmsyncobj -o drmsyncobj/linux-drm-syncobj-v1_generated.go -import wl_surface=github.com/bnema/wlturbo/protocol/core drmsyncobj/linux-drm-syncobj-v1.xml
 //go:generate go run ../cmd/wlturbo-scanner -p viewporter -o viewporter/viewporter_generated.go -import wl_surface=github.com/bnema/wlturbo/protocol/core viewporter/viewporter.xml
 //go:generate go run ../cmd/wlturbo-scanner -p fractionalscale -o fractionalscale/fractional-scale-v1_generated.go -import wl_surface=github.com/bnema/wlturbo/protocol/core fractionalscale/fractional-scale-v1.xml
+//go:generate go run ../cmd/wlturbo-scanner -p tablet -o tablet/tablet-v2_generated.go -import wl_surface=github.com/bnema/wlturbo/protocol/core -import wl_seat=github.com/bnema/wlturbo/protocol/core tablet/tablet-v2.xml
+//go:generate go run ../cmd/wlturbo-scanner -p cursorshape -o cursorshape/cursor-shape-v1_generated.go -import wl_pointer=github.com/bnema/wlturbo/protocol/core -import zwp_tablet_tool_v2=github.com/bnema/wlturbo/protocol/tablet cursorshape/cursor-shape-v1.xml
 //go:generate go run ../cmd/wlturbo-scanner -p textinput -o textinput/text-input-unstable-v3_generated.go -import wl_surface=github.com/bnema/wlturbo/protocol/core -import wl_seat=github.com/bnema/wlturbo/protocol/core textinput/text-input-unstable-v3.xml
