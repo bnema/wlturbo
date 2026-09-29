@@ -108,19 +108,13 @@ func NewTabletManager(ctx *wl.Context) *TabletManager {
 
 // Get the zwp_tablet_seat_v2 object for the given seat. This object provides access to all graphics tablets in this seat.
 func (o *TabletManager) GetTabletSeat(seat *cross_wl_seat.Seat) (*TabletSeat, error) {
-	if err := o.Context().CheckProxy(o); err != nil {
-		return nil, err
-	}
 	var arg1 wl.Object
 	if seat != nil {
 		arg1 = seat
 	}
 	child := &TabletSeat{}
 	child.SetContext(o.Context())
-	child.SetID(o.Context().AllocateID())
-	o.Context().Register(child)
-	if err := o.Context().SendRequest(o, 0, child, arg1); err != nil {
-		o.Context().Unregister(child)
+	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 0, Name: "zwp_tablet_manager_v2.get_tablet_seat", Child: child}, child, arg1); err != nil {
 		return nil, err
 	}
 	return child, nil
@@ -128,10 +122,7 @@ func (o *TabletManager) GetTabletSeat(seat *cross_wl_seat.Seat) (*TabletSeat, er
 
 // Destroy the zwp_tablet_manager_v2 object. Objects created from this object are unaffected and should be destroyed separately.
 func (o *TabletManager) Destroy() error {
-	if err := o.Context().CheckProxy(o); err != nil {
-		return err
-	}
-	if err := o.Context().SendDestructor(o, 1); err != nil {
+	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 1, Name: "zwp_tablet_manager_v2.destroy", Destructor: true}); err != nil {
 		return err
 	}
 	return nil
@@ -176,10 +167,7 @@ func NewTabletSeat(ctx *wl.Context) *TabletSeat {
 
 // Destroy the zwp_tablet_seat_v2 object. Objects created from this object are unaffected and should be destroyed separately.
 func (o *TabletSeat) Destroy() error {
-	if err := o.Context().CheckProxy(o); err != nil {
-		return err
-	}
-	if err := o.Context().SendDestructor(o, 0); err != nil {
+	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 0, Name: "zwp_tablet_seat_v2.destroy", Destructor: true}); err != nil {
 		return err
 	}
 	return nil
@@ -273,6 +261,7 @@ func (o *TabletSeat) Dispatch(event *wl.Event) {
 		idObject := &Tablet{}
 		idObject.SetContext(o.Context())
 		idObject.SetID(idID)
+		idObject.SetVersion(o.Version())
 		o.Context().Register(idObject)
 
 		for i, handler := range o.handlersForTabletAdded() {
@@ -284,6 +273,7 @@ func (o *TabletSeat) Dispatch(event *wl.Event) {
 		idObject := &TabletTool{}
 		idObject.SetContext(o.Context())
 		idObject.SetID(idID)
+		idObject.SetVersion(o.Version())
 		o.Context().Register(idObject)
 
 		for i, handler := range o.handlersForToolAdded() {
@@ -295,6 +285,7 @@ func (o *TabletSeat) Dispatch(event *wl.Event) {
 		idObject := &TabletPad{}
 		idObject.SetContext(o.Context())
 		idObject.SetID(idID)
+		idObject.SetVersion(o.Version())
 		o.Context().Register(idObject)
 
 		for i, handler := range o.handlersForPadAdded() {
@@ -345,14 +336,11 @@ func NewTabletTool(ctx *wl.Context) *TabletTool {
 
 // Sets the surface of the cursor used for this tool on the given tablet. This request only takes effect if the tool is in proximity of one of the requesting client's surfaces or the surface parameter is the current pointer surface. If there was a previous surface set with this request it is replaced. If surface is NULL, the cursor image is hidden. The parameters hotspot_x and hotspot_y define the position of the pointer surface relative to the pointer location. Its top-left corner is always at (x, y) - (hotspot_x, hotspot_y), where (x, y) are the coordinates of the pointer location, in surface-local coordinates. On surface.attach requests to the pointer surface, hotspot_x and hotspot_y are decremented by the x and y parameters passed to the request. Attach must be confirmed by wl_surface.commit as usual. The hotspot can also be updated by passing the currently set pointer surface to this request with new values for hotspot_x and hotspot_y. The current and pending input regions of the wl_surface are cleared, and wl_surface.set_input_region is ignored until the wl_surface is no longer used as the cursor. When the use as a cursor ends, the current and pending input regions become undefined, and the wl_surface is unmapped. This request gives the surface the role of a zwp_tablet_tool_v2 cursor. A surface may only ever be used as the cursor surface for one zwp_tablet_tool_v2. If the surface already has another role or has previously been used as cursor surface for a different tool, a protocol error is raised.
 func (o *TabletTool) SetCursor(serial uint32, surface *cross_wl_surface.Surface, hotspotX int32, hotspotY int32) error {
-	if err := o.Context().CheckProxy(o); err != nil {
-		return err
-	}
 	var arg1 wl.Object
 	if surface != nil {
 		arg1 = surface
 	}
-	if err := o.Context().SendRequest(o, 0, serial, arg1, hotspotX, hotspotY); err != nil {
+	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 0, Name: "zwp_tablet_tool_v2.set_cursor"}, serial, arg1, hotspotX, hotspotY); err != nil {
 		return err
 	}
 	return nil
@@ -360,10 +348,7 @@ func (o *TabletTool) SetCursor(serial uint32, surface *cross_wl_surface.Surface,
 
 // This destroys the client's resource for this tool object.
 func (o *TabletTool) Destroy() error {
-	if err := o.Context().CheckProxy(o); err != nil {
-		return err
-	}
-	if err := o.Context().SendDestructor(o, 1); err != nil {
+	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 1, Name: "zwp_tablet_tool_v2.destroy", Destructor: true}); err != nil {
 		return err
 	}
 	return nil
@@ -1005,10 +990,7 @@ func NewTablet(ctx *wl.Context) *Tablet {
 
 // This destroys the client's resource for this tablet object.
 func (o *Tablet) Destroy() error {
-	if err := o.Context().CheckProxy(o); err != nil {
-		return err
-	}
-	if err := o.Context().SendDestructor(o, 0); err != nil {
+	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 0, Name: "zwp_tablet_v2.destroy", Destructor: true}); err != nil {
 		return err
 	}
 	return nil
@@ -1239,10 +1221,7 @@ func NewTabletPadRing(ctx *wl.Context) *TabletPadRing {
 
 // Request that the compositor use the provided feedback string associated with this ring. This request should be issued immediately after a zwp_tablet_pad_group_v2.mode_switch event from the corresponding group is received, or whenever the ring is mapped to a different action. See zwp_tablet_pad_group_v2.mode_switch for more details. Clients are encouraged to provide context-aware descriptions for the actions associated with the ring; compositors may use this information to offer visual feedback about the button layout (eg. on-screen displays). The provided string 'description' is a UTF-8 encoded string to be associated with this ring, and is considered user-visible; general internationalization rules apply. The serial argument will be that of the last zwp_tablet_pad_group_v2.mode_switch event received for the group of this ring. Requests providing other serials than the most recent one will be ignored.
 func (o *TabletPadRing) SetFeedback(description string, serial uint32) error {
-	if err := o.Context().CheckProxy(o); err != nil {
-		return err
-	}
-	if err := o.Context().SendRequest(o, 0, description, serial); err != nil {
+	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 0, Name: "zwp_tablet_pad_ring_v2.set_feedback"}, description, serial); err != nil {
 		return err
 	}
 	return nil
@@ -1250,10 +1229,7 @@ func (o *TabletPadRing) SetFeedback(description string, serial uint32) error {
 
 // This destroys the client's resource for this ring object.
 func (o *TabletPadRing) Destroy() error {
-	if err := o.Context().CheckProxy(o); err != nil {
-		return err
-	}
-	if err := o.Context().SendDestructor(o, 1); err != nil {
+	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 1, Name: "zwp_tablet_pad_ring_v2.destroy", Destructor: true}); err != nil {
 		return err
 	}
 	return nil
@@ -1422,10 +1398,7 @@ func NewTabletPadStrip(ctx *wl.Context) *TabletPadStrip {
 
 // Requests the compositor to use the provided feedback string associated with this strip. This request should be issued immediately after a zwp_tablet_pad_group_v2.mode_switch event from the corresponding group is received, or whenever the strip is mapped to a different action. See zwp_tablet_pad_group_v2.mode_switch for more details. Clients are encouraged to provide context-aware descriptions for the actions associated with the strip, and compositors may use this information to offer visual feedback about the button layout (eg. on-screen displays). The provided string 'description' is a UTF-8 encoded string to be associated with this ring, and is considered user-visible; general internationalization rules apply. The serial argument will be that of the last zwp_tablet_pad_group_v2.mode_switch event received for the group of this strip. Requests providing other serials than the most recent one will be ignored.
 func (o *TabletPadStrip) SetFeedback(description string, serial uint32) error {
-	if err := o.Context().CheckProxy(o); err != nil {
-		return err
-	}
-	if err := o.Context().SendRequest(o, 0, description, serial); err != nil {
+	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 0, Name: "zwp_tablet_pad_strip_v2.set_feedback"}, description, serial); err != nil {
 		return err
 	}
 	return nil
@@ -1433,10 +1406,7 @@ func (o *TabletPadStrip) SetFeedback(description string, serial uint32) error {
 
 // This destroys the client's resource for this strip object.
 func (o *TabletPadStrip) Destroy() error {
-	if err := o.Context().CheckProxy(o); err != nil {
-		return err
-	}
-	if err := o.Context().SendDestructor(o, 1); err != nil {
+	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 1, Name: "zwp_tablet_pad_strip_v2.destroy", Destructor: true}); err != nil {
 		return err
 	}
 	return nil
@@ -1608,10 +1578,7 @@ func NewTabletPadGroup(ctx *wl.Context) *TabletPadGroup {
 
 // Destroy the zwp_tablet_pad_group_v2 object. Objects created from this object are unaffected and should be destroyed separately.
 func (o *TabletPadGroup) Destroy() error {
-	if err := o.Context().CheckProxy(o); err != nil {
-		return err
-	}
-	if err := o.Context().SendDestructor(o, 0); err != nil {
+	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 0, Name: "zwp_tablet_pad_group_v2.destroy", Destructor: true}); err != nil {
 		return err
 	}
 	return nil
@@ -1808,6 +1775,7 @@ func (o *TabletPadGroup) Dispatch(event *wl.Event) {
 		ringObject := &TabletPadRing{}
 		ringObject.SetContext(o.Context())
 		ringObject.SetID(ringID)
+		ringObject.SetVersion(o.Version())
 		o.Context().Register(ringObject)
 
 		for i, handler := range o.handlersForRing() {
@@ -1819,6 +1787,7 @@ func (o *TabletPadGroup) Dispatch(event *wl.Event) {
 		stripObject := &TabletPadStrip{}
 		stripObject.SetContext(o.Context())
 		stripObject.SetID(stripID)
+		stripObject.SetVersion(o.Version())
 		o.Context().Register(stripObject)
 
 		for i, handler := range o.handlersForStrip() {
@@ -1852,6 +1821,7 @@ func (o *TabletPadGroup) Dispatch(event *wl.Event) {
 		dialObject := &TabletPadDial{}
 		dialObject.SetContext(o.Context())
 		dialObject.SetID(dialID)
+		dialObject.SetVersion(o.Version())
 		o.Context().Register(dialObject)
 
 		for i, handler := range o.handlersForDial() {
@@ -1891,10 +1861,7 @@ func NewTabletPad(ctx *wl.Context) *TabletPad {
 
 // Requests the compositor to use the provided feedback string associated with this button. This request should be issued immediately after a zwp_tablet_pad_group_v2.mode_switch event from the corresponding group is received, or whenever a button is mapped to a different action. See zwp_tablet_pad_group_v2.mode_switch for more details. Clients are encouraged to provide context-aware descriptions for the actions associated with each button, and compositors may use this information to offer visual feedback on the button layout (e.g. on-screen displays). Button indices start at 0. Setting the feedback string on a button that is reserved by the compositor (i.e. not belonging to any zwp_tablet_pad_group_v2) does not generate an error but the compositor is free to ignore the request. The provided string 'description' is a UTF-8 encoded string to be associated with this ring, and is considered user-visible; general internationalization rules apply. The serial argument will be that of the last zwp_tablet_pad_group_v2.mode_switch event received for the group of this button. Requests providing other serials than the most recent one will be ignored.
 func (o *TabletPad) SetFeedback(button uint32, description string, serial uint32) error {
-	if err := o.Context().CheckProxy(o); err != nil {
-		return err
-	}
-	if err := o.Context().SendRequest(o, 0, button, description, serial); err != nil {
+	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 0, Name: "zwp_tablet_pad_v2.set_feedback"}, button, description, serial); err != nil {
 		return err
 	}
 	return nil
@@ -1902,10 +1869,7 @@ func (o *TabletPad) SetFeedback(button uint32, description string, serial uint32
 
 // Destroy the zwp_tablet_pad_v2 object. Objects created from this object are unaffected and should be destroyed separately.
 func (o *TabletPad) Destroy() error {
-	if err := o.Context().CheckProxy(o); err != nil {
-		return err
-	}
-	if err := o.Context().SendDestructor(o, 1); err != nil {
+	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 1, Name: "zwp_tablet_pad_v2.destroy", Destructor: true}); err != nil {
 		return err
 	}
 	return nil
@@ -2119,6 +2083,7 @@ func (o *TabletPad) Dispatch(event *wl.Event) {
 		padGroupObject := &TabletPadGroup{}
 		padGroupObject.SetContext(o.Context())
 		padGroupObject.SetID(padGroupID)
+		padGroupObject.SetVersion(o.Version())
 		o.Context().Register(padGroupObject)
 
 		for i, handler := range o.handlersForGroup() {
@@ -2204,10 +2169,7 @@ func NewTabletPadDial(ctx *wl.Context) *TabletPadDial {
 
 // Requests the compositor to use the provided feedback string associated with this dial. This request should be issued immediately after a zwp_tablet_pad_group_v2.mode_switch event from the corresponding group is received, or whenever the dial is mapped to a different action. See zwp_tablet_pad_group_v2.mode_switch for more details. Clients are encouraged to provide context-aware descriptions for the actions associated with the dial, and compositors may use this information to offer visual feedback about the button layout (eg. on-screen displays). The provided string 'description' is a UTF-8 encoded string to be associated with this ring, and is considered user-visible; general internationalization rules apply. The serial argument will be that of the last zwp_tablet_pad_group_v2.mode_switch event received for the group of this dial. Requests providing other serials than the most recent one will be ignored.
 func (o *TabletPadDial) SetFeedback(description string, serial uint32) error {
-	if err := o.Context().CheckProxy(o); err != nil {
-		return err
-	}
-	if err := o.Context().SendRequest(o, 0, description, serial); err != nil {
+	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 0, Name: "zwp_tablet_pad_dial_v2.set_feedback"}, description, serial); err != nil {
 		return err
 	}
 	return nil
@@ -2215,10 +2177,7 @@ func (o *TabletPadDial) SetFeedback(description string, serial uint32) error {
 
 // This destroys the client's resource for this dial object.
 func (o *TabletPadDial) Destroy() error {
-	if err := o.Context().CheckProxy(o); err != nil {
-		return err
-	}
-	if err := o.Context().SendDestructor(o, 1); err != nil {
+	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 1, Name: "zwp_tablet_pad_dial_v2.destroy", Destructor: true}); err != nil {
 		return err
 	}
 	return nil

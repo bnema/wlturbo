@@ -25,21 +25,11 @@ After `display.Roundtrip()` discovers globals, call `display.Registry().BindNego
 
 ## Features
 
-### Performance Optimizations
-
-- **Zero-allocation event handling**: For messages under 4KB
-- **Lock-free dispatcher**: For object IDs < 1024 using atomic operations  
-- **Pre-allocated buffers**: Reusable buffers to minimize allocations
-- **Direct array indexing**: Fast opcode lookup for common cases
-- **Buffer pooling**: sync.Pool for temporary allocations
-- **File descriptor passing**: Efficient shared memory via SCM_RIGHTS
-
-### Design Goals
-
-- Minimal allocations in hot paths
-- Efficient event dispatching
-- Clean API for protocol extensions
-- Foundation for high-performance Wayland applications
+- **Stream framing**: messages split across or coalesced within socket reads are framed exactly; event bodies are not copied.
+- **Descriptor ownership**: received FDs belong to the event that declares them and are closed if a handler does not take them.
+- **Object lifecycle**: destroyed objects stay as zombies until `delete_id`, so events already in flight are dropped instead of failing the connection.
+- **Version checks**: generated requests newer than the bound object version return `ErrVersionTooLow` before anything is sent.
+- **Allocation-free requests**: marshaling fixed-size requests does not allocate.
 
 ## Quick Start
 
@@ -58,7 +48,8 @@ func main() {
     }
     defer display.Close()
 
-    // Basic event loop
+    // Basic event loop. Handlers run inside Dispatch and must not call
+    // Dispatch or Roundtrip on the same display.
     for {
         if err := display.Dispatch(); err != nil {
             break
@@ -69,28 +60,9 @@ func main() {
 
 For device control and input injection, use [libwldevices-go](https://github.com/bnema/libwldevices-go) which builds on top of WLTurbo.
 
-## Implementation Status
-
-### Core Protocol ✅
-- Display, Registry, Compositor, Surface, Seat, Region
-- Event dispatching and handler registration
-- File descriptor passing for shared memory
-- Context-based proxy management
-
-### Optimizations ✅
-- Zero-allocation event handling (messages < 4KB)
-- Lock-free dispatcher for common cases
-- Pre-allocated and pooled buffers
-- Efficient event routing
-
-### Future Improvements
-- Performance benchmarks and validation
-- Additional optimizations based on profiling
-- Extended protocol object support as needed
-
 ## Requirements
 
-- **Go 1.21+**
+- **Go 1.27+**
 - **Linux** with Wayland compositor
 - **Unix sockets** support
 

@@ -3,6 +3,7 @@ package wlturbo
 import (
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"sync"
 	"sync/atomic"
 
@@ -28,7 +29,12 @@ type Proxy interface {
 type BaseProxy struct {
 	id      uint32
 	context *Context
+	version uint32
 }
+
+// eventPool recycles Events across dispatches; an Event is only valid for
+// the duration of the handler call.
+var eventPool = sync.Pool{New: func() any { return &Event{} }}
 
 // Event represents a Wayland protocol event
 type Event struct {
@@ -41,7 +47,8 @@ type Event struct {
 	fdIndex int
 }
 
-// Data returns the raw event data
+// Data returns the raw event body. It aliases the connection's receive buffer
+// and is only valid until the handler returns; copy it to keep it.
 func (e *Event) Data() []byte {
 	return e.data
 }
@@ -89,6 +96,58 @@ func (c *Context) CheckProxy(proxy Proxy) error {
 	return nil
 }
 
+// Request describes one protocol request for Context.Request.
+type Request struct {
+	Proxy      Proxy
+	Opcode     uint32
+	Name       string // interface.request, used in errors
+	Since      uint32 // version that introduced the request; 0 or 1 means always
+	Destructor bool   // claim the proxy exactly once, as SendDestructor does
+	Child      Proxy  // new_id object created by this request, or nil
+	FDs        []int  // descriptors to attach; closed after a successful send
+}
+
+// Request runs one request with its whole lifecycle: it checks the proxy and
+// version, allocates and registers Child (inheriting the parent's version),
+// sends, and then either closes the sent descriptors or, on error,
+// unregisters Child and leaves the descriptors with the caller. Child must
+// already have this context; it is passed in args at its wire position.
+func (c *Context) Request(r Request, args ...interface{}) error {
+	if err := c.CheckProxy(r.Proxy); err != nil {
+		return err
+	}
+	if v, ok := r.Proxy.(interface{ Version() uint32 }); ok {
+		if err := CheckVersion(v.Version(), r.Since, r.Name); err != nil {
+			return err
+		}
+	}
+	if r.Child != nil {
+		r.Child.SetID(c.AllocateID())
+		if v, ok := r.Proxy.(interface{ Version() uint32 }); ok {
+			if s, ok := r.Child.(interface{ SetVersion(uint32) }); ok {
+				s.SetVersion(v.Version())
+			}
+		}
+		c.Register(r.Child)
+	}
+	var err error
+	if r.Destructor {
+		err = c.SendDestructorWithFDs(r.Proxy, r.Opcode, r.FDs, args...)
+	} else {
+		err = c.SendRequestWithFDs(r.Proxy, r.Opcode, r.FDs, args...)
+	}
+	if err != nil {
+		if r.Child != nil {
+			c.Unregister(r.Child)
+		}
+		return err
+	}
+	for _, fd := range r.FDs {
+		_ = CloseSentFD(fd)
+	}
+	return nil
+}
+
 // SendDestructor sends a destructor request exactly once. The proxy is
 // claimed (unregistered) under the connection send lock, after marshaling
 // and immediately before the write: concurrent destructors and later requests
@@ -115,9 +174,18 @@ func (c *Context) claimDestroy(proxy Proxy) error {
 	if !c.proxies.CompareAndDelete(proxy.ID(), proxy) {
 		return errors.New("proxy is not registered")
 	}
-	c.display.objects.CompareAndDelete(proxy.ID(), proxy)
+	// The compositor may already have sent events for this object. Keep a
+	// zombie until delete_id so those events are dropped, not fatal.
+	c.display.objects.CompareAndSwap(proxy.ID(), proxy, &zombie{object: proxy})
 	return nil
 }
+
+// zombie stands in for an object the client destroyed until the compositor
+// acknowledges the destruction with wl_display.delete_id. Events that were in
+// flight for it are discarded; their descriptors are closed.
+type zombie struct{ object Object }
+
+func (z *zombie) ID() uint32 { return z.object.ID() }
 
 // Register registers a proxy object
 func (c *Context) Register(proxy Proxy) {
@@ -131,10 +199,12 @@ func (c *Context) Register(proxy Proxy) {
 }
 
 // Unregister removes a proxy object
+// Only this proxy is removed: a zombie or a newer object that took the ID
+// is left in place.
 func (c *Context) Unregister(proxy Proxy) {
 	if proxy != nil {
-		c.proxies.Delete(proxy.ID())
-		c.display.objects.Delete(proxy.ID())
+		c.proxies.CompareAndDelete(proxy.ID(), proxy)
+		c.display.objects.CompareAndDelete(proxy.ID(), proxy)
 	}
 }
 
@@ -201,6 +271,30 @@ func (p *BaseProxy) Context() *Context {
 // SetContext sets the proxy's context
 func (p *BaseProxy) SetContext(ctx *Context) {
 	p.context = ctx
+}
+
+// Version returns the protocol version the object was bound or created at,
+// or 0 when it is unknown (for example after Registry.BindID).
+func (p *BaseProxy) Version() uint32 {
+	return p.version
+}
+
+// SetVersion records the object's protocol version. Registry.Bind sets it for
+// globals and generated requests copy it from parent to child.
+func (p *BaseProxy) SetVersion(v uint32) {
+	p.version = v
+}
+
+// ErrVersionTooLow reports a request the bound object version does not have.
+var ErrVersionTooLow = errors.New("wlturbo: request needs a newer object version")
+
+// CheckVersion rejects a request introduced in version since when the
+// object's known version is lower. An unknown version (0) is not checked.
+func CheckVersion(version, since uint32, request string) error {
+	if version != 0 && version < since {
+		return fmt.Errorf("%w: %s needs version %d, object has %d", ErrVersionTooLow, request, since, version)
+	}
+	return nil
 }
 
 // Dispatch default implementation (does nothing)

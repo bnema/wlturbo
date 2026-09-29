@@ -4,6 +4,7 @@ package protocol_test
 
 import (
 	"encoding/binary"
+	"errors"
 	"net"
 	"os"
 	"strings"
@@ -412,8 +413,11 @@ func TestExtensionsOverSocketpair(t *testing.T) {
 	request(t, p)
 	noerr(t, device.Release())
 	request(t, p)
-	noerr(t, mgr.Release())
-	request(t, p)
+	// release is a version 4 request; the manager was negotiated at 3, so it
+	// must be refused locally instead of reaching the compositor.
+	if err := mgr.Release(); !errors.Is(err, wlturbo.ErrVersionTooLow) {
+		t.Fatalf("release at v3 = %v, want ErrVersionTooLow", err)
+	}
 	// Cursor shape: get a device for a wl_pointer and set a shape at an
 	// enter serial; check the exact wire arguments.
 	pointer := core.NewPointer(d.Context())
