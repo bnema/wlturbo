@@ -21,3 +21,8 @@ SHA-256 (of the vendored XML bytes):
 | `stable/viewporter/viewporter.xml` | `viewporter/viewporter.xml` | `dcb12279a03746301fe490aaed4b38a403485a925abfce2ccfceb644e104fe71` |
 | `staging/fractional-scale/fractional-scale-v1.xml` | `fractionalscale/fractional-scale-v1.xml` | `5941de5d28f427ecdadddc8623a6f6af0a30b0ab4726847236ba7a7652b81316` |
 | `unstable/text-input/text-input-unstable-v3.xml` | `textinput/text-input-unstable-v3.xml` | `160815cda13c285a30df1971d8f0a5b3aac07071537df59916d2f748b18e4f59` |
+| `staging/cursor-shape/cursor-shape-v1.xml` | `cursorshape/cursor-shape-v1.xml` | `bb57d91e53a79dadab7c612dab87c233393cee73673feefa7442cfbfdd9aed2f` |
+| `stable/tablet/tablet-v2.xml` | `tablet/tablet-v2.xml` | `ac1128b26c779cf90b9ed71182ba5e34a7262826789adae206d825a4d45908b4` |
+
+`tablet-v2.xml` is vendored because `wp_cursor_shape_manager_v1.get_tablet_tool_v2`
+references `zwp_tablet_tool_v2`.

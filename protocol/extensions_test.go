@@ -12,6 +12,7 @@ import (
 
 	"github.com/bnema/wlturbo"
 	"github.com/bnema/wlturbo/protocol/core"
+	"github.com/bnema/wlturbo/protocol/cursorshape"
 	"github.com/bnema/wlturbo/protocol/drmsyncobj"
 	"github.com/bnema/wlturbo/protocol/fractionalscale"
 	"github.com/bnema/wlturbo/protocol/linuxdmabuf"
@@ -413,6 +414,26 @@ func TestExtensionsOverSocketpair(t *testing.T) {
 	request(t, p)
 	noerr(t, mgr.Release())
 	request(t, p)
+	// Cursor shape: get a device for a wl_pointer and set a shape at an
+	// enter serial; check the exact wire arguments.
+	pointer := core.NewPointer(d.Context())
+	pointer.SetID(d.AllocateID())
+	d.Context().Register(pointer)
+	shapes := cursorshape.NewWpCursorShapeManager(d.Context())
+	bind(t, d, p, 8, cursorshape.WpCursorShapeManagerInterface, 2, 1, shapes)
+	shape, e := shapes.GetPointer(pointer)
+	noerr(t, e)
+	if id, op, b := request(t, p); id != shapes.ID() || op != 1 || binary.NativeEndian.Uint32(b) != shape.ID() || binary.NativeEndian.Uint32(b[4:]) != pointer.ID() {
+		t.Fatalf("get_pointer wire id=%d op=%d %x", id, op, b)
+	}
+	noerr(t, shape.SetShape(42, cursorshape.SHAPE_POINTER))
+	if id, op, b := request(t, p); id != shape.ID() || op != 1 || binary.NativeEndian.Uint32(b) != 42 || binary.NativeEndian.Uint32(b[4:]) != 4 {
+		t.Fatalf("set_shape wire id=%d op=%d %x", id, op, b)
+	}
+	noerr(t, shape.Destroy())
+	request(t, p)
+	noerr(t, shapes.Destroy())
+	request(t, p)
 
 }
 
@@ -424,7 +445,7 @@ func TestLiveFeedback(t *testing.T) {
 	noerr(t, e)
 	defer d.Close()
 	noerr(t, d.Roundtrip())
-	for _, iface := range []string{xdgshell.XdgWmBaseInterface, linuxdmabuf.LinuxDmabufInterface, drmsyncobj.WpLinuxDrmSyncobjManagerInterface, viewporter.WpViewporterInterface, fractionalscale.WpFractionalScaleManagerInterface, textinput.TextInputManagerV3Interface} {
+	for _, iface := range []string{xdgshell.XdgWmBaseInterface, linuxdmabuf.LinuxDmabufInterface, drmsyncobj.WpLinuxDrmSyncobjManagerInterface, viewporter.WpViewporterInterface, fractionalscale.WpFractionalScaleManagerInterface, textinput.TextInputManagerV3Interface, cursorshape.WpCursorShapeManagerInterface} {
 		g, ok := d.Registry().FindGlobal(iface)
 		if !ok {
 			t.Logf("%s absent", iface)
