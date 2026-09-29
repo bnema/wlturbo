@@ -2,7 +2,9 @@ package wlturbo
 
 import (
 	"bytes"
+	"encoding/binary"
 	"errors"
+	"io"
 	"net"
 	"os"
 	"testing"
@@ -52,6 +54,74 @@ func TestRegistryGlobalHandlersAccumulate(t *testing.T) {
 	d.registry.handleGlobal([]byte{1, 0, 0, 0, 4, 0, 0, 0, 'a', 'b', 'c', 0, 1, 0, 0, 0})
 	if a != 1 || b != 1 || specific != 1 {
 		t.Fatalf("calls a=%d b=%d specific=%d, want 1 each", a, b, specific)
+	}
+}
+
+type fdSigProxy struct {
+	BaseProxy
+	calls int
+}
+
+func (p *fdSigProxy) EventSignature(op uint16) (string, bool) {
+	switch op {
+	case 0:
+		return "uint,", true
+	case 1:
+		return "fd,", true
+	}
+	return "", false
+}
+func (p *fdSigProxy) Dispatch(*Event) { p.calls++ }
+
+// Events already in flight for an object the client destroyed are dropped,
+// with their descriptors closed, until the compositor sends delete_id.
+func TestDestroyedObjectEventsAreDroppedUntilDeleteID(t *testing.T) {
+	client, peer := unixSocketPair(t)
+	d := newDisplay(client)
+	p := &fdSigProxy{BaseProxy: BaseProxy{id: d.AllocateID(), context: d.context}}
+	d.context.Register(p)
+	if err := d.context.SendDestructor(p, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.context.SendRequest(p, 1); err == nil {
+		t.Fatal("request on destroyed proxy succeeded")
+	}
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	sendMessageWithFDs(t, peer, message(p.ID(), 0, []byte{1, 0, 0, 0}), nil)
+	sendMessageWithFDs(t, peer, message(p.ID(), 1, nil), []int{int(w.Fd())})
+	w.Close()
+	for i := 0; i < 2; i++ {
+		if err := d.Dispatch(); err != nil {
+			t.Fatalf("in-flight event %d: %v", i, err)
+		}
+	}
+	if p.calls != 0 {
+		t.Fatalf("destroyed proxy received %d events", p.calls)
+	}
+	if err := r.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Read(make([]byte, 1)); !errors.Is(err, io.EOF) {
+		t.Fatalf("descriptor for destroyed object not closed: %v", err)
+	}
+
+	body := make([]byte, 4)
+	binary.LittleEndian.PutUint32(body, p.ID())
+	sendMessageWithFDs(t, peer, message(displayObjectID, 1, body), nil)
+	if err := d.Dispatch(); err != nil {
+		t.Fatalf("delete_id for zombie: %v", err)
+	}
+	sendMessageWithFDs(t, peer, message(p.ID(), 0, []byte{1, 0, 0, 0}), nil)
+	if err := d.Dispatch(); !errors.Is(err, ErrUnknownObject) {
+		t.Fatalf("event after delete_id = %v, want ErrUnknownObject", err)
+	}
+	if got := d.AllocateID(); got != p.ID() {
+		t.Fatalf("ID %d not reused after delete_id (got %d)", p.ID(), got)
 	}
 }
 

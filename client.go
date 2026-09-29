@@ -500,6 +500,9 @@ func (d *Display) dispatchFrame(f receivedFrame) error {
 		*ev = Event{}
 		eventPool.Put(ev)
 	}()
+	if _, isZombie := obj.(*zombie); isZombie {
+		return nil
+	}
 	if proxy, ok := obj.(Proxy); ok {
 		proxy.Dispatch(ev)
 	} else {
@@ -542,8 +545,13 @@ func (d *Display) prepareFrame(f receivedFrame) (Object, *Event, uint8, error) {
 	if !ok {
 		return nil, nil, 0, &ProtocolError{Kind: "unknown_object", Object: f.object, Opcode: f.opcode, Err: ErrUnknownObject}
 	}
+	sigObj := obj
+	z, isZombie := obj.(*zombie)
+	if isZombie {
+		sigObj = z.object
+	}
 	sig, valid := "", false
-	p, isGenerated := obj.(signatureProvider)
+	p, isGenerated := sigObj.(signatureProvider)
 	if isGenerated {
 		sig, valid = p.EventSignature(f.opcode)
 	}
@@ -582,6 +590,8 @@ func (d *Display) prepareFrame(f receivedFrame) (Object, *Event, uint8, error) {
 		eventPool.Put(ev)
 		return nil, nil, 0, &ProtocolError{Kind: "extra_fd", Object: f.object, Opcode: f.opcode, Err: ErrMalformedFrame}
 	}
+	// For a zombie the descriptors were still consumed above so the stream
+	// stays aligned; dispatchFrame closes them without running any handler.
 	return obj.(Object), ev, 0, nil
 }
 
@@ -643,7 +653,11 @@ func (d *Display) handleDisplayEvent(opcode uint16, data []byte) error {
 		}
 		id := binary.LittleEndian.Uint32(data[0:4])
 		d.idMu.Lock()
-		_, live := d.objects.Load(id)
+		obj, live := d.objects.Load(id)
+		if _, isZombie := obj.(*zombie); isZombie {
+			d.objects.CompareAndDelete(id, obj)
+			live = false
+		}
 		if id < 2 || id >= 0xff000000 || id >= d.nextID || live || d.retiredIDs[id] {
 			d.idMu.Unlock()
 			return &ProtocolError{Kind: "invalid_delete_id", Object: id, Err: ErrMalformedFrame}

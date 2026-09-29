@@ -115,9 +115,18 @@ func (c *Context) claimDestroy(proxy Proxy) error {
 	if !c.proxies.CompareAndDelete(proxy.ID(), proxy) {
 		return errors.New("proxy is not registered")
 	}
-	c.display.objects.CompareAndDelete(proxy.ID(), proxy)
+	// The compositor may already have sent events for this object. Keep a
+	// zombie until delete_id so those events are dropped, not fatal.
+	c.display.objects.CompareAndSwap(proxy.ID(), proxy, &zombie{object: proxy})
 	return nil
 }
+
+// zombie stands in for an object the client destroyed until the compositor
+// acknowledges the destruction with wl_display.delete_id. Events that were in
+// flight for it are discarded; their descriptors are closed.
+type zombie struct{ object Object }
+
+func (z *zombie) ID() uint32 { return z.object.ID() }
 
 // Register registers a proxy object
 func (c *Context) Register(proxy Proxy) {
