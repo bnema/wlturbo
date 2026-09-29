@@ -160,3 +160,20 @@ func TestBindRecordsVersion(t *testing.T) {
 		t.Fatalf("version = %d, want 3", p.Version())
 	}
 }
+
+// A late Unregister of a destroyed proxy (for example from a handler that was
+// already running) must not remove its zombie.
+func TestUnregisterKeepsZombie(t *testing.T) {
+	d := newDisplay(&chunkConn{})
+	p := &fdSigProxy{BaseProxy: BaseProxy{id: d.AllocateID(), context: d.context}}
+	d.context.Register(p)
+	if err := d.context.SendDestructor(p, 0); err != nil {
+		t.Fatal(err)
+	}
+	d.context.Unregister(p)
+	if obj, _ := d.objects.Load(p.ID()); obj == nil {
+		t.Fatal("Unregister removed the zombie")
+	} else if _, ok := obj.(*zombie); !ok {
+		t.Fatalf("object = %T, want *zombie", obj)
+	}
+}

@@ -147,10 +147,12 @@ func (c *Context) Register(proxy Proxy) {
 }
 
 // Unregister removes a proxy object
+// Only this proxy is removed: a zombie or a newer object that took the ID
+// is left in place.
 func (c *Context) Unregister(proxy Proxy) {
 	if proxy != nil {
-		c.proxies.Delete(proxy.ID())
-		c.display.objects.Delete(proxy.ID())
+		c.proxies.CompareAndDelete(proxy.ID(), proxy)
+		c.display.objects.CompareAndDelete(proxy.ID(), proxy)
 	}
 }
 

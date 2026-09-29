@@ -491,6 +491,11 @@ func (d *Display) dispatchFrame(f receivedFrame) error {
 	if _, isZombie := obj.(*zombie); isZombie {
 		return nil
 	}
+	// Another goroutine may have destroyed the object after prepareFrame
+	// looked it up; a destroyed object receives no further events.
+	if current, _ := d.objects.Load(f.object); current != obj {
+		return nil
+	}
 	if r, ok := obj.(eventReceiver); ok {
 		r.Dispatch(ev)
 	}
