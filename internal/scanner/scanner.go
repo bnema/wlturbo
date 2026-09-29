@@ -187,6 +187,7 @@ type requestData struct {
 	Doc             string
 	Opcode          int
 	Destructor      bool
+	Since           int
 	Params          string
 	Results         string
 	ArgPreparations []string
@@ -407,6 +408,7 @@ func (s *Scanner) processRequest(iface Interface, req Request, opcode int) (requ
 		Doc:        s.formatDescription(req.Description),
 		Opcode:     opcode,
 		Destructor: req.Type == "destructor",
+		Since:      req.Since,
 		ChildVar:   "child",
 	}
 
@@ -549,6 +551,7 @@ func (s *Scanner) processEvent(event Event, opcode int) (eventData, error) {
 			}
 			data.DecodeLines = append(data.DecodeLines,
 				fmt.Sprintf("%s.SetID(%sID)", child, name),
+				fmt.Sprintf("%s.SetVersion(o.Version())", child),
 				fmt.Sprintf("o.Context().Register(%s)", child),
 			)
 			params = append(params, child+" *"+childType)

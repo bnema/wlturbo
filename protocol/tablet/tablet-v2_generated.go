@@ -118,6 +118,7 @@ func (o *TabletManager) GetTabletSeat(seat *cross_wl_seat.Seat) (*TabletSeat, er
 	child := &TabletSeat{}
 	child.SetContext(o.Context())
 	child.SetID(o.Context().AllocateID())
+	child.SetVersion(o.Version())
 	o.Context().Register(child)
 	if err := o.Context().SendRequest(o, 0, child, arg1); err != nil {
 		o.Context().Unregister(child)
@@ -273,6 +274,7 @@ func (o *TabletSeat) Dispatch(event *wl.Event) {
 		idObject := &Tablet{}
 		idObject.SetContext(o.Context())
 		idObject.SetID(idID)
+		idObject.SetVersion(o.Version())
 		o.Context().Register(idObject)
 
 		for i, handler := range o.handlersForTabletAdded() {
@@ -284,6 +286,7 @@ func (o *TabletSeat) Dispatch(event *wl.Event) {
 		idObject := &TabletTool{}
 		idObject.SetContext(o.Context())
 		idObject.SetID(idID)
+		idObject.SetVersion(o.Version())
 		o.Context().Register(idObject)
 
 		for i, handler := range o.handlersForToolAdded() {
@@ -295,6 +298,7 @@ func (o *TabletSeat) Dispatch(event *wl.Event) {
 		idObject := &TabletPad{}
 		idObject.SetContext(o.Context())
 		idObject.SetID(idID)
+		idObject.SetVersion(o.Version())
 		o.Context().Register(idObject)
 
 		for i, handler := range o.handlersForPadAdded() {
@@ -1808,6 +1812,7 @@ func (o *TabletPadGroup) Dispatch(event *wl.Event) {
 		ringObject := &TabletPadRing{}
 		ringObject.SetContext(o.Context())
 		ringObject.SetID(ringID)
+		ringObject.SetVersion(o.Version())
 		o.Context().Register(ringObject)
 
 		for i, handler := range o.handlersForRing() {
@@ -1819,6 +1824,7 @@ func (o *TabletPadGroup) Dispatch(event *wl.Event) {
 		stripObject := &TabletPadStrip{}
 		stripObject.SetContext(o.Context())
 		stripObject.SetID(stripID)
+		stripObject.SetVersion(o.Version())
 		o.Context().Register(stripObject)
 
 		for i, handler := range o.handlersForStrip() {
@@ -1852,6 +1858,7 @@ func (o *TabletPadGroup) Dispatch(event *wl.Event) {
 		dialObject := &TabletPadDial{}
 		dialObject.SetContext(o.Context())
 		dialObject.SetID(dialID)
+		dialObject.SetVersion(o.Version())
 		o.Context().Register(dialObject)
 
 		for i, handler := range o.handlersForDial() {
@@ -2119,6 +2126,7 @@ func (o *TabletPad) Dispatch(event *wl.Event) {
 		padGroupObject := &TabletPadGroup{}
 		padGroupObject.SetContext(o.Context())
 		padGroupObject.SetID(padGroupID)
+		padGroupObject.SetVersion(o.Version())
 		o.Context().Register(padGroupObject)
 
 		for i, handler := range o.handlersForGroup() {

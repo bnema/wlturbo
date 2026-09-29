@@ -779,6 +779,7 @@ func (o *Compositor) CreateSurface() (*Surface, error) {
 	child := &Surface{}
 	child.SetContext(o.Context())
 	child.SetID(o.Context().AllocateID())
+	child.SetVersion(o.Version())
 	o.Context().Register(child)
 	if err := o.Context().SendRequest(o, 0, child); err != nil {
 		o.Context().Unregister(child)
@@ -795,6 +796,7 @@ func (o *Compositor) CreateRegion() (*Region, error) {
 	child := &Region{}
 	child.SetContext(o.Context())
 	child.SetID(o.Context().AllocateID())
+	child.SetVersion(o.Version())
 	o.Context().Register(child)
 	if err := o.Context().SendRequest(o, 1, child); err != nil {
 		o.Context().Unregister(child)
@@ -806,6 +808,9 @@ func (o *Compositor) CreateRegion() (*Region, error) {
 // This request destroys the wl_compositor. This has no effect on any other objects.
 func (o *Compositor) Release() error {
 	if err := o.Context().CheckProxy(o); err != nil {
+		return err
+	}
+	if err := wl.CheckVersion(o.Version(), 7, "wl_compositor.release"); err != nil {
 		return err
 	}
 	if err := o.Context().SendDestructor(o, 2); err != nil {
@@ -853,6 +858,7 @@ func (o *ShmPool) CreateBuffer(offset int32, width int32, height int32, stride i
 	child := &Buffer{}
 	child.SetContext(o.Context())
 	child.SetID(o.Context().AllocateID())
+	child.SetVersion(o.Version())
 	o.Context().Register(child)
 	if err := o.Context().SendRequest(o, 0, child, offset, width, height, stride, format); err != nil {
 		o.Context().Unregister(child)
@@ -926,6 +932,7 @@ func (o *Shm) CreatePool(fd int, size int32) (*ShmPool, error) {
 	child := &ShmPool{}
 	child.SetContext(o.Context())
 	child.SetID(o.Context().AllocateID())
+	child.SetVersion(o.Version())
 	o.Context().Register(child)
 	if err := o.Context().SendRequestWithFDs(o, 0, []int{fd}, child, uintptr(fd), size); err != nil {
 		o.Context().Unregister(child)
@@ -938,6 +945,9 @@ func (o *Shm) CreatePool(fd int, size int32) (*ShmPool, error) {
 // Using this request a client can tell the server that it is not going to use the shm object anymore. Objects created via this interface remain unaffected.
 func (o *Shm) Release() error {
 	if err := o.Context().CheckProxy(o); err != nil {
+		return err
+	}
+	if err := wl.CheckVersion(o.Version(), 2, "wl_shm.release"); err != nil {
 		return err
 	}
 	if err := o.Context().SendDestructor(o, 1); err != nil {
@@ -1129,6 +1139,9 @@ func (o *DataOffer) Finish() error {
 	if err := o.Context().CheckProxy(o); err != nil {
 		return err
 	}
+	if err := wl.CheckVersion(o.Version(), 3, "wl_data_offer.finish"); err != nil {
+		return err
+	}
 	if err := o.Context().SendRequest(o, 3); err != nil {
 		return err
 	}
@@ -1138,6 +1151,9 @@ func (o *DataOffer) Finish() error {
 // Sets the actions that the destination side client supports for this operation. This request may trigger the emission of wl_data_source.action and wl_data_offer.action events if the compositor needs to change the selected action. This request can be called multiple times throughout the drag-and-drop operation, typically in response to wl_data_device.enter or wl_data_device.motion events. This request determines the final result of the drag-and-drop operation. If the end result is that no action is accepted, the drag source will receive wl_data_source.cancelled. The dnd_actions argument must contain only values expressed in the wl_data_device_manager.dnd_actions enum, and the preferred_action argument must only contain one of those values set, otherwise it will result in a protocol error. While managing an "ask" action, the destination drag-and-drop client may perform further wl_data_offer.receive requests, and is expected to perform one last wl_data_offer.set_actions request with a preferred action other than "ask" (and optionally wl_data_offer.accept) before requesting wl_data_offer.finish, in order to convey the action selected by the user. If the preferred action is not in the wl_data_offer.source_actions mask, an error will be raised. If the "ask" action is dismissed (e.g. user cancellation), the client is expected to perform wl_data_offer.destroy right away. This request can only be made on drag-and-drop offers, a protocol error will be raised otherwise.
 func (o *DataOffer) SetActions(dndActions uint32, preferredAction uint32) error {
 	if err := o.Context().CheckProxy(o); err != nil {
+		return err
+	}
+	if err := wl.CheckVersion(o.Version(), 3, "wl_data_offer.set_actions"); err != nil {
 		return err
 	}
 	if err := o.Context().SendRequest(o, 4, dndActions, preferredAction); err != nil {
@@ -1304,6 +1320,9 @@ func (o *DataSource) Destroy() error {
 // Sets the actions that the source side client supports for this operation. This request may trigger wl_data_source.action and wl_data_offer.action events if the compositor needs to change the selected action. The dnd_actions argument must contain only values expressed in the wl_data_device_manager.dnd_actions enum, otherwise it will result in a protocol error. This request must be made once only, and can only be made on sources used in drag-and-drop, so it must be performed before wl_data_device.start_drag. Attempting to use the source other than for drag-and-drop will raise a protocol error.
 func (o *DataSource) SetActions(dndActions uint32) error {
 	if err := o.Context().CheckProxy(o); err != nil {
+		return err
+	}
+	if err := wl.CheckVersion(o.Version(), 3, "wl_data_source.set_actions"); err != nil {
 		return err
 	}
 	if err := o.Context().SendRequest(o, 2, dndActions); err != nil {
@@ -1583,6 +1602,9 @@ func (o *DataDevice) Release() error {
 	if err := o.Context().CheckProxy(o); err != nil {
 		return err
 	}
+	if err := wl.CheckVersion(o.Version(), 2, "wl_data_device.release"); err != nil {
+		return err
+	}
 	if err := o.Context().SendDestructor(o, 2); err != nil {
 		return err
 	}
@@ -1749,6 +1771,7 @@ func (o *DataDevice) Dispatch(event *wl.Event) {
 		idObject := &DataOffer{}
 		idObject.SetContext(o.Context())
 		idObject.SetID(idID)
+		idObject.SetVersion(o.Version())
 		o.Context().Register(idObject)
 
 		for i, handler := range o.handlersForDataOffer() {
@@ -1822,6 +1845,7 @@ func (o *DataDeviceManager) CreateDataSource() (*DataSource, error) {
 	child := &DataSource{}
 	child.SetContext(o.Context())
 	child.SetID(o.Context().AllocateID())
+	child.SetVersion(o.Version())
 	o.Context().Register(child)
 	if err := o.Context().SendRequest(o, 0, child); err != nil {
 		o.Context().Unregister(child)
@@ -1842,6 +1866,7 @@ func (o *DataDeviceManager) GetDataDevice(seat *Seat) (*DataDevice, error) {
 	child := &DataDevice{}
 	child.SetContext(o.Context())
 	child.SetID(o.Context().AllocateID())
+	child.SetVersion(o.Version())
 	o.Context().Register(child)
 	if err := o.Context().SendRequest(o, 1, child, arg1); err != nil {
 		o.Context().Unregister(child)
@@ -1853,6 +1878,9 @@ func (o *DataDeviceManager) GetDataDevice(seat *Seat) (*DataDevice, error) {
 // This request destroys the wl_data_device_manager. This has no effect on any other objects.
 func (o *DataDeviceManager) Release() error {
 	if err := o.Context().CheckProxy(o); err != nil {
+		return err
+	}
+	if err := wl.CheckVersion(o.Version(), 4, "wl_data_device_manager.release"); err != nil {
 		return err
 	}
 	if err := o.Context().SendDestructor(o, 2); err != nil {
@@ -1904,6 +1932,7 @@ func (o *Shell) GetShellSurface(surface *Surface) (*ShellSurface, error) {
 	child := &ShellSurface{}
 	child.SetContext(o.Context())
 	child.SetID(o.Context().AllocateID())
+	child.SetVersion(o.Version())
 	o.Context().Register(child)
 	if err := o.Context().SendRequest(o, 0, child, arg1); err != nil {
 		o.Context().Unregister(child)
@@ -2264,6 +2293,7 @@ func (o *Surface) Frame() (*Callback, error) {
 	child := &Callback{}
 	child.SetContext(o.Context())
 	child.SetID(o.Context().AllocateID())
+	child.SetVersion(o.Version())
 	o.Context().Register(child)
 	if err := o.Context().SendRequest(o, 3, child); err != nil {
 		o.Context().Unregister(child)
@@ -2318,6 +2348,9 @@ func (o *Surface) SetBufferTransform(transform int32) error {
 	if err := o.Context().CheckProxy(o); err != nil {
 		return err
 	}
+	if err := wl.CheckVersion(o.Version(), 2, "wl_surface.set_buffer_transform"); err != nil {
+		return err
+	}
 	if err := o.Context().SendRequest(o, 7, transform); err != nil {
 		return err
 	}
@@ -2327,6 +2360,9 @@ func (o *Surface) SetBufferTransform(transform int32) error {
 // This request sets an optional scaling factor on how the compositor interprets the contents of the buffer attached to the window. Buffer scale is double-buffered state, see wl_surface.commit. A newly created surface has its buffer scale set to 1. wl_surface.set_buffer_scale changes the pending buffer scale. wl_surface.commit copies the pending buffer scale to the current one. Otherwise, the pending and current values are never changed. The purpose of this request is to allow clients to supply higher resolution buffer data for use on high resolution outputs. It is intended that you pick the same buffer scale as the scale of the output that the surface is displayed on. This means the compositor can avoid scaling when rendering the surface on that output. Note that if the scale is larger than 1, then you have to attach a buffer that is larger (by a factor of scale in each dimension) than the desired surface size. If scale is not greater than 0 the invalid_scale protocol error is raised.
 func (o *Surface) SetBufferScale(scale int32) error {
 	if err := o.Context().CheckProxy(o); err != nil {
+		return err
+	}
+	if err := wl.CheckVersion(o.Version(), 3, "wl_surface.set_buffer_scale"); err != nil {
 		return err
 	}
 	if err := o.Context().SendRequest(o, 8, scale); err != nil {
@@ -2340,6 +2376,9 @@ func (o *Surface) DamageBuffer(x int32, y int32, width int32, height int32) erro
 	if err := o.Context().CheckProxy(o); err != nil {
 		return err
 	}
+	if err := wl.CheckVersion(o.Version(), 4, "wl_surface.damage_buffer"); err != nil {
+		return err
+	}
 	if err := o.Context().SendRequest(o, 9, x, y, width, height); err != nil {
 		return err
 	}
@@ -2349,6 +2388,9 @@ func (o *Surface) DamageBuffer(x int32, y int32, width int32, height int32) erro
 // The x and y arguments specify the location of the new pending buffer's upper left corner, relative to the current buffer's upper left corner, in surface-local coordinates. In other words, the x and y, combined with the new surface size define in which directions the surface's size changes. The exact semantics of wl_surface.offset are role-specific. Refer to the documentation of specific roles for more information. Surface location offset is double-buffered state, see wl_surface.commit. This request is semantically equivalent to and the replaces the x and y arguments in the wl_surface.attach request in wl_surface versions prior to 5. See wl_surface.attach for details.
 func (o *Surface) Offset(x int32, y int32) error {
 	if err := o.Context().CheckProxy(o); err != nil {
+		return err
+	}
+	if err := wl.CheckVersion(o.Version(), 5, "wl_surface.offset"); err != nil {
 		return err
 	}
 	if err := o.Context().SendRequest(o, 10, x, y); err != nil {
@@ -2362,9 +2404,13 @@ func (o *Surface) GetRelease() (*Callback, error) {
 	if err := o.Context().CheckProxy(o); err != nil {
 		return nil, err
 	}
+	if err := wl.CheckVersion(o.Version(), 7, "wl_surface.get_release"); err != nil {
+		return nil, err
+	}
 	child := &Callback{}
 	child.SetContext(o.Context())
 	child.SetID(o.Context().AllocateID())
+	child.SetVersion(o.Version())
 	o.Context().Register(child)
 	if err := o.Context().SendRequest(o, 11, child); err != nil {
 		o.Context().Unregister(child)
@@ -2541,6 +2587,7 @@ func (o *Seat) GetPointer() (*Pointer, error) {
 	child := &Pointer{}
 	child.SetContext(o.Context())
 	child.SetID(o.Context().AllocateID())
+	child.SetVersion(o.Version())
 	o.Context().Register(child)
 	if err := o.Context().SendRequest(o, 0, child); err != nil {
 		o.Context().Unregister(child)
@@ -2557,6 +2604,7 @@ func (o *Seat) GetKeyboard() (*Keyboard, error) {
 	child := &Keyboard{}
 	child.SetContext(o.Context())
 	child.SetID(o.Context().AllocateID())
+	child.SetVersion(o.Version())
 	o.Context().Register(child)
 	if err := o.Context().SendRequest(o, 1, child); err != nil {
 		o.Context().Unregister(child)
@@ -2573,6 +2621,7 @@ func (o *Seat) GetTouch() (*Touch, error) {
 	child := &Touch{}
 	child.SetContext(o.Context())
 	child.SetID(o.Context().AllocateID())
+	child.SetVersion(o.Version())
 	o.Context().Register(child)
 	if err := o.Context().SendRequest(o, 2, child); err != nil {
 		o.Context().Unregister(child)
@@ -2584,6 +2633,9 @@ func (o *Seat) GetTouch() (*Touch, error) {
 // Using this request a client can tell the server that it is not going to use the seat object anymore.
 func (o *Seat) Release() error {
 	if err := o.Context().CheckProxy(o); err != nil {
+		return err
+	}
+	if err := wl.CheckVersion(o.Version(), 5, "wl_seat.release"); err != nil {
 		return err
 	}
 	if err := o.Context().SendDestructor(o, 3); err != nil {
@@ -2718,6 +2770,9 @@ func (o *Pointer) SetCursor(serial uint32, surface *Surface, hotspotX int32, hot
 // Using this request a client can tell the server that it is not going to use the pointer object anymore. This request destroys the pointer proxy object, so clients must not call wl_pointer_destroy() after using this request.
 func (o *Pointer) Release() error {
 	if err := o.Context().CheckProxy(o); err != nil {
+		return err
+	}
+	if err := wl.CheckVersion(o.Version(), 3, "wl_pointer.release"); err != nil {
 		return err
 	}
 	if err := o.Context().SendDestructor(o, 1); err != nil {
@@ -3158,6 +3213,9 @@ func (o *Keyboard) Release() error {
 	if err := o.Context().CheckProxy(o); err != nil {
 		return err
 	}
+	if err := wl.CheckVersion(o.Version(), 3, "wl_keyboard.release"); err != nil {
+		return err
+	}
 	if err := o.Context().SendDestructor(o, 0); err != nil {
 		return err
 	}
@@ -3411,6 +3469,9 @@ func NewTouch(ctx *wl.Context) *Touch {
 // release the touch object
 func (o *Touch) Release() error {
 	if err := o.Context().CheckProxy(o); err != nil {
+		return err
+	}
+	if err := wl.CheckVersion(o.Version(), 3, "wl_touch.release"); err != nil {
 		return err
 	}
 	if err := o.Context().SendDestructor(o, 0); err != nil {
@@ -3690,6 +3751,9 @@ func NewOutput(ctx *wl.Context) *Output {
 // Using this request a client can tell the server that it is not going to use the output object anymore.
 func (o *Output) Release() error {
 	if err := o.Context().CheckProxy(o); err != nil {
+		return err
+	}
+	if err := wl.CheckVersion(o.Version(), 3, "wl_output.release"); err != nil {
 		return err
 	}
 	if err := o.Context().SendDestructor(o, 0); err != nil {
@@ -4015,6 +4079,7 @@ func (o *Subcompositor) GetSubsurface(surface *Surface, parent *Surface) (*Subsu
 	child := &Subsurface{}
 	child.SetContext(o.Context())
 	child.SetID(o.Context().AllocateID())
+	child.SetVersion(o.Version())
 	o.Context().Register(child)
 	if err := o.Context().SendRequest(o, 1, child, arg1, arg2); err != nil {
 		o.Context().Unregister(child)
@@ -4188,6 +4253,9 @@ func (o *Fixes) DestroyRegistry(registry *wl.Registry) error {
 // Acknowledge the removal of the specified global. If no global with the specified name exists or the global is not removed, the wl_fixes.invalid_ack_remove protocol error will be posted. Due to the Wayland protocol being asynchronous, the wl_global objects cannot be destroyed immediately. For example, if a wl_global is removed and a client attempts to bind that global around same time, it can result in a protocol error due to an unknown global name in the bind request. In order to avoid crashing clients, the compositor should remove the wl_global once it is guaranteed that no more bind requests will come. The wl_fixes.ack_global_remove() request is used to signal to the compositor that the client will not bind the given global anymore. After all clients acknowledge the removal of the global, the compositor can safely destroy it. The client must call the wl_fixes.ack_global_remove() request in response to a wl_registry.global_remove() event even if it did not bind the corresponding global.
 func (o *Fixes) AckGlobalRemove(registry *wl.Registry, name uint32) error {
 	if err := o.Context().CheckProxy(o); err != nil {
+		return err
+	}
+	if err := wl.CheckVersion(o.Version(), 2, "wl_fixes.ack_global_remove"); err != nil {
 		return err
 	}
 	var arg0 wl.Object

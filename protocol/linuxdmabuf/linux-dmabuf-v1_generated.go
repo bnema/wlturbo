@@ -94,6 +94,7 @@ func (o *LinuxDmabuf) CreateParams() (*LinuxBufferParams, error) {
 	child := &LinuxBufferParams{}
 	child.SetContext(o.Context())
 	child.SetID(o.Context().AllocateID())
+	child.SetVersion(o.Version())
 	o.Context().Register(child)
 	if err := o.Context().SendRequest(o, 1, child); err != nil {
 		o.Context().Unregister(child)
@@ -107,9 +108,13 @@ func (o *LinuxDmabuf) GetDefaultFeedback() (*LinuxDmabufFeedback, error) {
 	if err := o.Context().CheckProxy(o); err != nil {
 		return nil, err
 	}
+	if err := wl.CheckVersion(o.Version(), 4, "zwp_linux_dmabuf_v1.get_default_feedback"); err != nil {
+		return nil, err
+	}
 	child := &LinuxDmabufFeedback{}
 	child.SetContext(o.Context())
 	child.SetID(o.Context().AllocateID())
+	child.SetVersion(o.Version())
 	o.Context().Register(child)
 	if err := o.Context().SendRequest(o, 2, child); err != nil {
 		o.Context().Unregister(child)
@@ -123,6 +128,9 @@ func (o *LinuxDmabuf) GetSurfaceFeedback(surface *cross_wl_surface.Surface) (*Li
 	if err := o.Context().CheckProxy(o); err != nil {
 		return nil, err
 	}
+	if err := wl.CheckVersion(o.Version(), 4, "zwp_linux_dmabuf_v1.get_surface_feedback"); err != nil {
+		return nil, err
+	}
 	var arg1 wl.Object
 	if surface != nil {
 		arg1 = surface
@@ -130,6 +138,7 @@ func (o *LinuxDmabuf) GetSurfaceFeedback(surface *cross_wl_surface.Surface) (*Li
 	child := &LinuxDmabufFeedback{}
 	child.SetContext(o.Context())
 	child.SetID(o.Context().AllocateID())
+	child.SetVersion(o.Version())
 	o.Context().Register(child)
 	if err := o.Context().SendRequest(o, 3, child, arg1); err != nil {
 		o.Context().Unregister(child)
@@ -277,8 +286,12 @@ func (o *LinuxBufferParams) CreateImmed(width int32, height int32, format uint32
 	if err := o.Context().CheckProxy(o); err != nil {
 		return nil, err
 	}
+	if err := wl.CheckVersion(o.Version(), 2, "zwp_linux_buffer_params_v1.create_immed"); err != nil {
+		return nil, err
+	}
 	child := cross_wl_buffer.NewBuffer(o.Context())
 	child.SetID(o.Context().AllocateID())
+	child.SetVersion(o.Version())
 	o.Context().Register(child)
 	if err := o.Context().SendRequest(o, 3, child, width, height, format, flags); err != nil {
 		o.Context().Unregister(child)
@@ -290,6 +303,9 @@ func (o *LinuxBufferParams) CreateImmed(width int32, height int32, format uint32
 // Set the device the compositor should import the dmabufs to for sampling in the next create or create_immed request. To avoid race conditions when the compositor removes a device from the tranches, it is not a protocol error if the device hasn't been advertised by the compositor in a tranche with the sampling flag, but the import is likely to fail in that case. If the client doesn't know a suitable target device, it shouldn't set one, and the compositor should attempt import on all devices it supports. If the array is too small to contain a dev_t or larger than required, the invalid_dev_t_size error will be emitted.
 func (o *LinuxBufferParams) SetSamplingDevice(device []byte) error {
 	if err := o.Context().CheckProxy(o); err != nil {
+		return err
+	}
+	if err := wl.CheckVersion(o.Version(), 6, "zwp_linux_buffer_params_v1.set_sampling_device"); err != nil {
 		return err
 	}
 	if err := o.Context().SendRequest(o, 4, device); err != nil {
@@ -361,6 +377,7 @@ func (o *LinuxBufferParams) Dispatch(event *wl.Event) {
 		bufferID := event.Uint32()
 		bufferObject := cross_wl_buffer.NewBuffer(o.Context())
 		bufferObject.SetID(bufferID)
+		bufferObject.SetVersion(o.Version())
 		o.Context().Register(bufferObject)
 
 		for i, handler := range o.handlersForCreated() {

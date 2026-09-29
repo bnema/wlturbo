@@ -136,3 +136,27 @@ func TestMarshalRejectsPlainInt(t *testing.T) {
 		t.Fatal("SendRequest with int argument succeeded, want error")
 	}
 }
+
+func TestCheckVersion(t *testing.T) {
+	if err := CheckVersion(0, 5, "x.y"); err != nil {
+		t.Fatalf("unknown version rejected: %v", err)
+	}
+	if err := CheckVersion(5, 5, "x.y"); err != nil {
+		t.Fatalf("exact version rejected: %v", err)
+	}
+	if err := CheckVersion(4, 5, "x.y"); !errors.Is(err, ErrVersionTooLow) {
+		t.Fatalf("older version = %v, want ErrVersionTooLow", err)
+	}
+}
+
+// Bind records the negotiated version so generated requests can check it.
+func TestBindRecordsVersion(t *testing.T) {
+	d := newDisplay(&chunkConn{})
+	p := &BaseProxy{}
+	if err := d.Registry().Bind(1, "wl_seat", 3, p); err != nil {
+		t.Fatal(err)
+	}
+	if p.Version() != 3 {
+		t.Fatalf("version = %d, want 3", p.Version())
+	}
+}

@@ -35,6 +35,7 @@ var (
 	NewFixed            = wlturbo.NewFixed
 	NewContext          = wlturbo.NewContext
 	CloseSentFD         = wlturbo.CloseSentFD
+	CheckVersion        = wlturbo.CheckVersion
 	CreateAnonymousFile = wlturbo.CreateAnonymousFile
 	MapMemory           = wlturbo.MapMemory
 	UnmapMemory         = wlturbo.UnmapMemory
@@ -47,4 +48,5 @@ var (
 	ErrUnknownObject  = wlturbo.ErrUnknownObject
 	ErrUnknownOpcode  = wlturbo.ErrUnknownOpcode
 	ErrDisplayError   = wlturbo.ErrDisplayError
+	ErrVersionTooLow  = wlturbo.ErrVersionTooLow
 )

@@ -51,6 +51,9 @@ func New{{$iface.GoName}}(ctx *wl.Context) *{{$iface.GoName}} {
 {{- end}}
 func (o *{{$iface.GoName}}) {{.GoName}}({{.Params}}) {{.Results}} {
 if err := o.Context().CheckProxy(o); err != nil { return {{.ErrorReturn}} }
+{{- if gt .Since 1}}
+	if err := wl.CheckVersion(o.Version(), {{.Since}}, "{{$iface.Name}}.{{.Name}}"); err != nil { return {{.ErrorReturn}} }
+{{- end}}
 {{- range .ArgPreparations}}
 	{{.}}
 {{- end}}
@@ -62,6 +65,7 @@ if err := o.Context().CheckProxy(o); err != nil { return {{.ErrorReturn}} }
 	{{.ChildVar}}.SetContext(o.Context())
 {{- end}}
 	{{.ChildVar}}.SetID(o.Context().AllocateID())
+	{{.ChildVar}}.SetVersion(o.Version())
 	o.Context().Register({{.ChildVar}})
 {{- end}}
 	if err := o.Context().{{.SendCall}}; err != nil {

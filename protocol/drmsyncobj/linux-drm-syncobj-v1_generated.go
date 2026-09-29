@@ -72,6 +72,7 @@ func (o *WpLinuxDrmSyncobjManager) GetSurface(surface *cross_wl_surface.Surface)
 	child := &WpLinuxDrmSyncobjSurface{}
 	child.SetContext(o.Context())
 	child.SetID(o.Context().AllocateID())
+	child.SetVersion(o.Version())
 	o.Context().Register(child)
 	if err := o.Context().SendRequest(o, 1, child, arg1); err != nil {
 		o.Context().Unregister(child)
@@ -88,6 +89,7 @@ func (o *WpLinuxDrmSyncobjManager) ImportTimeline(fd int) (*WpLinuxDrmSyncobjTim
 	child := &WpLinuxDrmSyncobjTimeline{}
 	child.SetContext(o.Context())
 	child.SetID(o.Context().AllocateID())
+	child.SetVersion(o.Version())
 	o.Context().Register(child)
 	if err := o.Context().SendRequestWithFDs(o, 2, []int{fd}, child, uintptr(fd)); err != nil {
 		o.Context().Unregister(child)

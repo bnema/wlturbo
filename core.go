@@ -3,6 +3,7 @@ package wlturbo
 import (
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"sync"
 	"sync/atomic"
 
@@ -28,6 +29,7 @@ type Proxy interface {
 type BaseProxy struct {
 	id      uint32
 	context *Context
+	version uint32
 }
 
 // eventPool recycles Events across dispatches; an Event is only valid for
@@ -215,6 +217,30 @@ func (p *BaseProxy) Context() *Context {
 // SetContext sets the proxy's context
 func (p *BaseProxy) SetContext(ctx *Context) {
 	p.context = ctx
+}
+
+// Version returns the protocol version the object was bound or created at,
+// or 0 when it is unknown (for example after Registry.BindID).
+func (p *BaseProxy) Version() uint32 {
+	return p.version
+}
+
+// SetVersion records the object's protocol version. Registry.Bind sets it for
+// globals and generated requests copy it from parent to child.
+func (p *BaseProxy) SetVersion(v uint32) {
+	p.version = v
+}
+
+// ErrVersionTooLow reports a request the bound object version does not have.
+var ErrVersionTooLow = errors.New("wlturbo: request needs a newer object version")
+
+// CheckVersion rejects a request introduced in version since when the
+// object's known version is lower. An unknown version (0) is not checked.
+func CheckVersion(version, since uint32, request string) error {
+	if version != 0 && version < since {
+		return fmt.Errorf("%w: %s needs version %d, object has %d", ErrVersionTooLow, request, since, version)
+	}
+	return nil
 }
 
 // Dispatch default implementation (does nothing)

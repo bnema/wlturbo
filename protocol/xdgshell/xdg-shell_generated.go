@@ -259,6 +259,7 @@ func (o *XdgWmBase) CreatePositioner() (*XdgPositioner, error) {
 	child := &XdgPositioner{}
 	child.SetContext(o.Context())
 	child.SetID(o.Context().AllocateID())
+	child.SetVersion(o.Version())
 	o.Context().Register(child)
 	if err := o.Context().SendRequest(o, 1, child); err != nil {
 		o.Context().Unregister(child)
@@ -279,6 +280,7 @@ func (o *XdgWmBase) GetXdgSurface(surface *cross_wl_surface.Surface) (*XdgSurfac
 	child := &XdgSurface{}
 	child.SetContext(o.Context())
 	child.SetID(o.Context().AllocateID())
+	child.SetVersion(o.Version())
 	o.Context().Register(child)
 	if err := o.Context().SendRequest(o, 2, child, arg1); err != nil {
 		o.Context().Unregister(child)
@@ -442,6 +444,9 @@ func (o *XdgPositioner) SetReactive() error {
 	if err := o.Context().CheckProxy(o); err != nil {
 		return err
 	}
+	if err := wl.CheckVersion(o.Version(), 3, "xdg_positioner.set_reactive"); err != nil {
+		return err
+	}
 	if err := o.Context().SendRequest(o, 7); err != nil {
 		return err
 	}
@@ -453,6 +458,9 @@ func (o *XdgPositioner) SetParentSize(parentWidth int32, parentHeight int32) err
 	if err := o.Context().CheckProxy(o); err != nil {
 		return err
 	}
+	if err := wl.CheckVersion(o.Version(), 3, "xdg_positioner.set_parent_size"); err != nil {
+		return err
+	}
 	if err := o.Context().SendRequest(o, 8, parentWidth, parentHeight); err != nil {
 		return err
 	}
@@ -462,6 +470,9 @@ func (o *XdgPositioner) SetParentSize(parentWidth int32, parentHeight int32) err
 // Set the serial of an xdg_surface.configure event this positioner will be used in response to. The compositor may use this information together with set_parent_size to determine what future state the popup should be constrained using.
 func (o *XdgPositioner) SetParentConfigure(serial uint32) error {
 	if err := o.Context().CheckProxy(o); err != nil {
+		return err
+	}
+	if err := wl.CheckVersion(o.Version(), 3, "xdg_positioner.set_parent_configure"); err != nil {
 		return err
 	}
 	if err := o.Context().SendRequest(o, 9, serial); err != nil {
@@ -524,6 +535,7 @@ func (o *XdgSurface) GetToplevel() (*XdgToplevel, error) {
 	child := &XdgToplevel{}
 	child.SetContext(o.Context())
 	child.SetID(o.Context().AllocateID())
+	child.SetVersion(o.Version())
 	o.Context().Register(child)
 	if err := o.Context().SendRequest(o, 1, child); err != nil {
 		o.Context().Unregister(child)
@@ -548,6 +560,7 @@ func (o *XdgSurface) GetPopup(parent *XdgSurface, positioner *XdgPositioner) (*X
 	child := &XdgPopup{}
 	child.SetContext(o.Context())
 	child.SetID(o.Context().AllocateID())
+	child.SetVersion(o.Version())
 	o.Context().Register(child)
 	if err := o.Context().SendRequest(o, 2, child, arg1, arg2); err != nil {
 		o.Context().Unregister(child)
@@ -1013,6 +1026,9 @@ func (o *XdgPopup) Grab(seat *cross_wl_seat.Seat, serial uint32) error {
 // Reposition an already-mapped popup. The popup will be placed given the details in the passed xdg_positioner object, and a xdg_popup.repositioned followed by xdg_popup.configure and xdg_surface.configure will be emitted in response. Any parameters set by the previous positioner will be discarded. The passed token will be sent in the corresponding xdg_popup.repositioned event. The new popup position will not take effect until the corresponding configure event is acknowledged by the client. See xdg_popup.repositioned for details. The token itself is opaque, and has no other special meaning. If multiple reposition requests are sent, the compositor may skip all but the last one. If the popup is repositioned in response to a configure event for its parent, the client should send an xdg_positioner.set_parent_configure and possibly an xdg_positioner.set_parent_size request to allow the compositor to properly constrain the popup. If the popup is repositioned together with a parent that is being resized, but not in response to a configure event, the client should send an xdg_positioner.set_parent_size request.
 func (o *XdgPopup) Reposition(positioner *XdgPositioner, token uint32) error {
 	if err := o.Context().CheckProxy(o); err != nil {
+		return err
+	}
+	if err := wl.CheckVersion(o.Version(), 3, "xdg_popup.reposition"); err != nil {
 		return err
 	}
 	var arg0 wl.Object

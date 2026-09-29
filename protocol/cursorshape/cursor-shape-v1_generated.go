@@ -160,6 +160,7 @@ func (o *WpCursorShapeManager) GetPointer(pointer *cross_wl_pointer.Pointer) (*W
 	child := &WpCursorShapeDevice{}
 	child.SetContext(o.Context())
 	child.SetID(o.Context().AllocateID())
+	child.SetVersion(o.Version())
 	o.Context().Register(child)
 	if err := o.Context().SendRequest(o, 1, child, arg1); err != nil {
 		o.Context().Unregister(child)
@@ -180,6 +181,7 @@ func (o *WpCursorShapeManager) GetTabletTool(tabletTool *cross_zwp_tablet_tool_v
 	child := &WpCursorShapeDevice{}
 	child.SetContext(o.Context())
 	child.SetID(o.Context().AllocateID())
+	child.SetVersion(o.Version())
 	o.Context().Register(child)
 	if err := o.Context().SendRequest(o, 2, child, arg1); err != nil {
 		o.Context().Unregister(child)

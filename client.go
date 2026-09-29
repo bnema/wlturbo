@@ -758,6 +758,9 @@ func (r *Registry) Bind(name uint32, iface string, version uint32, proxy Proxy) 
 	if old, exists := r.display.objects.Load(proxy.ID()); exists && old != proxy {
 		return fmt.Errorf("object ID %d already registered", proxy.ID())
 	}
+	if v, ok := proxy.(interface{ SetVersion(uint32) }); ok {
+		v.SetVersion(version)
+	}
 	// Register the proxy
 	proxy.Context().Register(proxy)
 

@@ -63,6 +63,7 @@ func (o *WpViewporter) GetViewport(surface *cross_wl_surface.Surface) (*WpViewpo
 	child := &WpViewport{}
 	child.SetContext(o.Context())
 	child.SetID(o.Context().AllocateID())
+	child.SetVersion(o.Version())
 	o.Context().Register(child)
 	if err := o.Context().SendRequest(o, 1, child, arg1); err != nil {
 		o.Context().Unregister(child)

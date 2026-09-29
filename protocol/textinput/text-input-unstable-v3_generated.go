@@ -252,6 +252,9 @@ func (o *TextInputV3) SetAvailableActions(availableActions []byte) error {
 	if err := o.Context().CheckProxy(o); err != nil {
 		return err
 	}
+	if err := wl.CheckVersion(o.Version(), 2, "zwp_text_input_v3.set_available_actions"); err != nil {
+		return err
+	}
 	if err := o.Context().SendRequest(o, 8, availableActions); err != nil {
 		return err
 	}
@@ -263,6 +266,9 @@ func (o *TextInputV3) ShowInputPanel() error {
 	if err := o.Context().CheckProxy(o); err != nil {
 		return err
 	}
+	if err := wl.CheckVersion(o.Version(), 2, "zwp_text_input_v3.show_input_panel"); err != nil {
+		return err
+	}
 	if err := o.Context().SendRequest(o, 9); err != nil {
 		return err
 	}
@@ -272,6 +278,9 @@ func (o *TextInputV3) ShowInputPanel() error {
 // Requests an input panel to be hidden. This request only hints the desired interaction pattern from the client side, and its effect may be ignored by compositors given other environmental factors. Repeated calls will be ignored.
 func (o *TextInputV3) HideInputPanel() error {
 	if err := o.Context().CheckProxy(o); err != nil {
+		return err
+	}
+	if err := wl.CheckVersion(o.Version(), 2, "zwp_text_input_v3.hide_input_panel"); err != nil {
 		return err
 	}
 	if err := o.Context().SendRequest(o, 10); err != nil {
@@ -619,6 +628,7 @@ func (o *TextInputManagerV3) GetTextInput(seat *cross_wl_seat.Seat) (*TextInputV
 	child := &TextInputV3{}
 	child.SetContext(o.Context())
 	child.SetID(o.Context().AllocateID())
+	child.SetVersion(o.Version())
 	o.Context().Register(child)
 	if err := o.Context().SendRequest(o, 1, child, arg1); err != nil {
 		o.Context().Unregister(child)
