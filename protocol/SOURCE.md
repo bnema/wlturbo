@@ -36,6 +36,7 @@ SHA-256 (of the vendored XML bytes):
 | `staging/ext-idle-notify/ext-idle-notify-v1.xml` | `idlenotify/ext-idle-notify-v1.xml` | `e56a9c22684e6b46655f7221b798328e304c1efc8f63f01241a1cf8c070f4c30` |
 | `staging/ext-image-capture-source/ext-image-capture-source-v1.xml` | `imagecapturesource/ext-image-capture-source-v1.xml` | `4ef41d15e4cdb9f550158391358ceec724a6708b43b7efedec03121a6bb8458d` |
 | `staging/ext-image-copy-capture/ext-image-copy-capture-v1.xml` | `imagecopycapture/ext-image-copy-capture-v1.xml` | `41a446653f788fabb404cab3168c0bd667c1ff4b54f1f0bb1e18810a1f47d73f` |
+| `staging/ext-session-lock/ext-session-lock-v1.xml` | `extsessionlock/ext-session-lock-v1.xml` | `a05df7d95c5e523e457037b3a149484e8064828cda66971f3c7caeb87d597a81` |
 | `unstable/pointer-constraints/pointer-constraints-unstable-v1.xml` | `pointerconstraints/pointer-constraints-unstable-v1.xml` | `f980fac900ba1dcfbbe97f588fc17b893926bd2b57624563653a1bfe4d035948` |
 | `staging/pointer-warp/pointer-warp-v1.xml` | `pointerwarp/pointer-warp-v1.xml` | `1389e89c68c6f6d231fd2dcda57fa9c75c5230d0ac1deffa8d80a7648e197e66` |
 | `stable/presentation-time/presentation-time.xml` | `presentation/presentation-time.xml` | `dffac93bcb2bb1d8c385e72b8a8c2c0d4d79a336866322f3ba886dce2b27b1e2` |

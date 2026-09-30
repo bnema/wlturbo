@@ -28,7 +28,7 @@ Packages under `protocol/` cover:
 | Presentation and color | `presentation`, `tearingcontrol`, `fifo`, `committiming`, `contenttype`, `alphamodifier`, `colormanagement`, `colorrepresentation`, `drmlease` |
 | Input | `cursorshape`, `tablet`, `textinput`, `relativepointer`, `pointerconstraints`, `pointerwarp`, `shortcutsinhibit`, `virtualkeyboard`, `inputmethod` |
 | Clipboard | Core data-device, `primaryselection`, `datacontrol` (ext-data-control) |
-| Desktop and outputs | `layershell`, `xdgoutput`, `outputmanagement`, `outputpower`, `workspace`, `foreigntoplevel` (wlr), `extforeigntoplevel`, `kdeserverdecoration` |
+| Desktop and outputs | `layershell`, `xdgoutput`, `outputmanagement`, `outputpower`, `workspace`, `foreigntoplevel` (wlr), `extforeigntoplevel`, `extsessionlock`, `kdeserverdecoration` |
 | Idle | `idleinhibit`, `idlenotify` |
 | Capture | `screencopy` (wlr), `imagecapturesource`, `imagecopycapture` |
 
