@@ -23,6 +23,7 @@ type (
 	RegistryGlobalRemoveEvent   = wlturbo.RegistryGlobalRemoveEvent
 	OwnedFD                     = wlturbo.OwnedFD
 	Request                     = wlturbo.Request
+	Arg                         = wlturbo.Arg
 
 	// Transport failures. Without these, a caller that imports this shim has to
 	// import the root package as well just to classify an error.
@@ -34,6 +35,13 @@ type (
 var (
 	Connect             = wlturbo.Connect
 	NewFixed            = wlturbo.NewFixed
+	ArgUint             = wlturbo.ArgUint
+	ArgInt              = wlturbo.ArgInt
+	ArgFixed            = wlturbo.ArgFixed
+	ArgString           = wlturbo.ArgString
+	ArgArray            = wlturbo.ArgArray
+	ArgObject           = wlturbo.ArgObject
+	ArgFD               = wlturbo.ArgFD
 	NewContext          = wlturbo.NewContext
 	CloseSentFD         = wlturbo.CloseSentFD
 	CheckVersion        = wlturbo.CheckVersion

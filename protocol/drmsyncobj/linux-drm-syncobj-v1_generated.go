@@ -2,6 +2,31 @@
 // Protocol: linux_drm_syncobj_v1
 // Source: linux-drm-syncobj-v1.xml
 
+// Upstream protocol copyright and license:
+// Copyright 2016 The Chromium Authors.
+// Copyright 2017 Intel Corporation
+// Copyright 2018 Collabora, Ltd
+// Copyright 2021 Simon Ser
+//
+// Permission is hereby granted, free of charge, to any person obtaining a
+// copy of this software and associated documentation files (the "Software"),
+// to deal in the Software without restriction, including without limitation
+// the rights to use, copy, modify, merge, publish, distribute, sublicense,
+// and/or sell copies of the Software, and to permit persons to whom the
+// Software is furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice (including the next
+// paragraph) shall be included in all copies or substantial portions of the
+// Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+// THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+// FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+// DEALINGS IN THE SOFTWARE.
+
 package drmsyncobj
 
 import (
@@ -51,7 +76,7 @@ func NewWpLinuxDrmSyncobjManager(ctx *wl.Context) *WpLinuxDrmSyncobjManager {
 
 // Destroy this explicit synchronization factory object. Other objects shall not be affected by this request.
 func (o *WpLinuxDrmSyncobjManager) Destroy() error {
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 0, Name: "wp_linux_drm_syncobj_manager_v1.destroy", Destructor: true}); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 0, Name: "wp_linux_drm_syncobj_manager_v1.destroy", Destructor: true}); err != nil {
 		return err
 	}
 	return nil
@@ -65,7 +90,7 @@ func (o *WpLinuxDrmSyncobjManager) GetSurface(surface *cross_wl_surface.Surface)
 	}
 	child := &WpLinuxDrmSyncobjSurface{}
 	child.SetContext(o.Context())
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 1, Name: "wp_linux_drm_syncobj_manager_v1.get_surface", Child: child}, child, arg1); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 1, Name: "wp_linux_drm_syncobj_manager_v1.get_surface", Child: child}, wl.ArgObject(child), wl.ArgObject(arg1)); err != nil {
 		return nil, err
 	}
 	return child, nil
@@ -75,7 +100,7 @@ func (o *WpLinuxDrmSyncobjManager) GetSurface(surface *cross_wl_surface.Surface)
 func (o *WpLinuxDrmSyncobjManager) ImportTimeline(fd int) (*WpLinuxDrmSyncobjTimeline, error) {
 	child := &WpLinuxDrmSyncobjTimeline{}
 	child.SetContext(o.Context())
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 2, Name: "wp_linux_drm_syncobj_manager_v1.import_timeline", Child: child, FDs: []int{fd}}, child, uintptr(fd)); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 2, Name: "wp_linux_drm_syncobj_manager_v1.import_timeline", Child: child, FDs: []int{fd}}, wl.ArgObject(child), wl.ArgFD()); err != nil {
 		return nil, err
 	}
 	return child, nil
@@ -114,7 +139,7 @@ func NewWpLinuxDrmSyncobjTimeline(ctx *wl.Context) *WpLinuxDrmSyncobjTimeline {
 
 // Destroy the synchronization object timeline. Other objects are not affected by this request, in particular timeline points set by set_acquire_point and set_release_point are not unset.
 func (o *WpLinuxDrmSyncobjTimeline) Destroy() error {
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 0, Name: "wp_linux_drm_syncobj_timeline_v1.destroy", Destructor: true}); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 0, Name: "wp_linux_drm_syncobj_timeline_v1.destroy", Destructor: true}); err != nil {
 		return err
 	}
 	return nil
@@ -153,7 +178,7 @@ func NewWpLinuxDrmSyncobjSurface(ctx *wl.Context) *WpLinuxDrmSyncobjSurface {
 
 // Destroy this surface synchronization object. Any timeline point set by this object with set_acquire_point or set_release_point since the last commit may be discarded by the compositor. Any timeline point set by this object before the last commit will not be affected.
 func (o *WpLinuxDrmSyncobjSurface) Destroy() error {
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 0, Name: "wp_linux_drm_syncobj_surface_v1.destroy", Destructor: true}); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 0, Name: "wp_linux_drm_syncobj_surface_v1.destroy", Destructor: true}); err != nil {
 		return err
 	}
 	return nil
@@ -165,7 +190,7 @@ func (o *WpLinuxDrmSyncobjSurface) SetAcquirePoint(timeline *WpLinuxDrmSyncobjTi
 	if timeline != nil {
 		arg0 = timeline
 	}
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 1, Name: "wp_linux_drm_syncobj_surface_v1.set_acquire_point"}, arg0, pointHi, pointLo); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 1, Name: "wp_linux_drm_syncobj_surface_v1.set_acquire_point"}, wl.ArgObject(arg0), wl.ArgUint(pointHi), wl.ArgUint(pointLo)); err != nil {
 		return err
 	}
 	return nil
@@ -177,7 +202,7 @@ func (o *WpLinuxDrmSyncobjSurface) SetReleasePoint(timeline *WpLinuxDrmSyncobjTi
 	if timeline != nil {
 		arg0 = timeline
 	}
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 2, Name: "wp_linux_drm_syncobj_surface_v1.set_release_point"}, arg0, pointHi, pointLo); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 2, Name: "wp_linux_drm_syncobj_surface_v1.set_release_point"}, wl.ArgObject(arg0), wl.ArgUint(pointHi), wl.ArgUint(pointLo)); err != nil {
 		return err
 	}
 	return nil

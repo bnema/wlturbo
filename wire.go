@@ -141,3 +141,48 @@ func readFrame(r io.Reader, maxSize uint32) (object uint32, opcode uint16, body 
 	}
 	return object, opcode, body, nil
 }
+
+type argKind uint8
+
+const (
+	argInvalid argKind = iota // zero Arg: rejected, never marshaled
+	argWord                   // uint, int, fixed: one 32-bit word
+	argString
+	argArray
+	argObject
+	argFD
+)
+
+// Arg is one typed request argument. It carries native values (no interface
+// boxing), so building and passing Args to Context.RequestArgs does not
+// allocate. The zero Arg is invalid and makes the request fail before any
+// write. Build Args with the ArgXxx constructors.
+type Arg struct {
+	kind argKind
+	word uint32
+	str  string
+	arr  []byte
+	obj  Object
+}
+
+// ArgUint is a uint argument.
+func ArgUint(v uint32) Arg { return Arg{kind: argWord, word: v} }
+
+// ArgInt is an int argument.
+func ArgInt(v int32) Arg { return Arg{kind: argWord, word: uint32(v)} }
+
+// ArgFixed is a fixed-point argument.
+func ArgFixed(v Fixed) Arg { return Arg{kind: argWord, word: uint32(v)} }
+
+// ArgString is a string argument.
+func ArgString(v string) Arg { return Arg{kind: argString, str: v} }
+
+// ArgArray is an array argument.
+func ArgArray(v []byte) Arg { return Arg{kind: argArray, arr: v} }
+
+// ArgObject is an object or new_id argument; a nil Object is sent as 0.
+func ArgObject(v Object) Arg { return Arg{kind: argObject, obj: v} }
+
+// ArgFD marks a file descriptor position. Descriptors travel out of band in
+// Request.FDs, so it contributes no bytes to the message body.
+func ArgFD() Arg { return Arg{kind: argFD} }

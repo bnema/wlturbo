@@ -27,3 +27,14 @@ explicit external mapping, then only bootstrap display/registry. Generate with
 `GOWORK=off go generate ./...`; metadata and XML license are in
 `protocol/SOURCE.md`. Extension packages under `protocol/` use the same scanner
 and public core mappings; the generator carries no compositor policy.
+
+Generated requests use `Context.RequestArgs` with typed `Arg` values to avoid
+boxing numeric arguments. Custom proxies may use the same API; `Context.Request`
+and the raw send methods remain available. Both request APIs share version,
+child-object, destructor and descriptor lifecycle handling. Strings and arrays
+passed as arguments are borrowed until the synchronous request returns.
+
+For client code in compositor tests, replace handwritten protocol proxies with
+these generated constructors and typed handlers. Keep compositor-side server
+implementations in the compositor repository. Negotiate optional globals and
+handle their absence rather than testing the compositor's name.

@@ -162,6 +162,7 @@ type templateData struct {
 	Package     string
 	Protocol    string
 	Source      string
+	Copyright   string
 	ImportBlock string
 	Constants   []constantData
 	Interfaces  []interfaceData
@@ -251,6 +252,15 @@ func (s *Scanner) prepareTemplateData(packageName string) (templateData, error) 
 		Package:  packageName,
 		Protocol: s.protocol.Name,
 		Source:   s.source,
+	}
+	if notice := strings.TrimSpace(s.protocol.Copyright); notice != "" {
+		var comment strings.Builder
+		for _, line := range strings.Split(notice, "\n") {
+			comment.WriteString("// ")
+			comment.WriteString(strings.TrimSpace(line))
+			comment.WriteByte('\n')
+		}
+		data.Copyright = comment.String()
 	}
 
 	imports := []string{TransportImport}
@@ -449,17 +459,29 @@ func (s *Scanner) processRequest(iface Interface, req Request, opcode int) (requ
 				fmt.Sprintf("if %s != nil {", name),
 				fmt.Sprintf("\t%s = %s", holder, name),
 				"}")
-			expr = holder
+			expr = "wl.ArgObject(" + holder + ")"
 
 		case "fd":
 			// Descriptors travel out of band: the body carries no value for
 			// them, and the descriptor list is attached to the request.
 			params = append(params, name+" int")
 			fdExprs = append(fdExprs, name)
-			expr = "uintptr(" + name + ")"
+			expr = "wl.ArgFD()"
 
 		default:
 			params = append(params, name+" "+goType)
+			switch arg.Type {
+			case "int":
+				expr = "wl.ArgInt(" + name + ")"
+			case "uint":
+				expr = "wl.ArgUint(" + name + ")"
+			case "fixed":
+				expr = "wl.ArgFixed(" + name + ")"
+			case "string":
+				expr = "wl.ArgString(" + name + ")"
+			case "array":
+				expr = "wl.ArgArray(" + name + ")"
+			}
 		}
 
 		argSlots = append(argSlots, argSlot{expr: expr})
@@ -479,7 +501,7 @@ func (s *Scanner) processRequest(iface Interface, req Request, opcode int) (requ
 
 	for _, slot := range argSlots {
 		if slot.newID {
-			argExprs = append(argExprs, data.ChildVar)
+			argExprs = append(argExprs, "wl.ArgObject("+data.ChildVar+")")
 			continue
 		}
 		argExprs = append(argExprs, slot.expr)
@@ -490,7 +512,7 @@ func (s *Scanner) processRequest(iface Interface, req Request, opcode int) (requ
 	if len(argExprs) > 0 {
 		args = ", " + strings.Join(argExprs, ", ")
 	}
-	// Context.Request owns the lifecycle: destructors claim the proxy
+	// Context.RequestArgs owns the lifecycle: destructors claim the proxy
 	// atomically, children are registered before the send and descriptors are
 	// closed only after a successful send.
 	data.ArgList = args

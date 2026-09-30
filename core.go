@@ -75,10 +75,7 @@ func (c *Context) SendRequest(proxy Proxy, opcode uint32, args ...interface{}) e
 // SendRequestWithFDs sends a request with file descriptors through the context.
 // On error the FDs remain owned by the caller.
 func (c *Context) SendRequestWithFDs(proxy Proxy, opcode uint32, fds []int, args ...interface{}) error {
-	if err := c.CheckProxy(proxy); err != nil {
-		return err
-	}
-	return c.display.sendRequest(proxy.ID(), uint16(opcode), fds, func() error { return c.CheckProxy(proxy) }, args)
+	return c.sendChecked(proxy, opcode, fds, c.CheckProxy, args, nil)
 }
 
 // CheckProxy rejects stale and foreign proxies before any bytes are written.
@@ -96,7 +93,8 @@ func (c *Context) CheckProxy(proxy Proxy) error {
 	return nil
 }
 
-// Request describes one protocol request for Context.Request.
+// Request describes one protocol request for Context.Request and
+// Context.RequestArgs.
 type Request struct {
 	Proxy      Proxy
 	Opcode     uint32
@@ -112,7 +110,35 @@ type Request struct {
 // sends, and then either closes the sent descriptors or, on error,
 // unregisters Child and leaves the descriptors with the caller. Child must
 // already have this context; it is passed in args at its wire position.
+//
+// Every argument is boxed into an interface, and a descriptor is a uintptr
+// placeholder that r.FDs is not checked against. Generated bindings use
+// RequestArgs instead, which marshals the same bytes without allocating.
 func (c *Context) Request(r Request, args ...interface{}) error {
+	return c.request(r, args, nil, false)
+}
+
+// RequestArgs is Request with typed arguments: same lifecycle, same wire
+// bytes, no per-argument interface boxing. Child, when set, must be passed as
+// an ArgObject at its wire position. The number of ArgFD markers must equal
+// len(r.FDs); a mismatch fails before the child is allocated, the send guard
+// runs or anything is written, and leaves the descriptors with the caller.
+func (c *Context) RequestArgs(r Request, args ...Arg) error {
+	return c.request(r, nil, args, true)
+}
+
+func (c *Context) request(r Request, args []interface{}, vals []Arg, typed bool) error {
+	if typed {
+		markers := 0
+		for i := range vals {
+			if vals[i].kind == argFD {
+				markers++
+			}
+		}
+		if markers != len(r.FDs) {
+			return fmt.Errorf("wlturbo: %s: %d fd arguments but %d descriptors", r.Name, markers, len(r.FDs))
+		}
+	}
 	if err := c.CheckProxy(r.Proxy); err != nil {
 		return err
 	}
@@ -132,9 +158,9 @@ func (c *Context) Request(r Request, args ...interface{}) error {
 	}
 	var err error
 	if r.Destructor {
-		err = c.SendDestructorWithFDs(r.Proxy, r.Opcode, r.FDs, args...)
+		err = c.sendChecked(r.Proxy, r.Opcode, r.FDs, c.claimDestroy, args, vals)
 	} else {
-		err = c.SendRequestWithFDs(r.Proxy, r.Opcode, r.FDs, args...)
+		err = c.sendChecked(r.Proxy, r.Opcode, r.FDs, c.CheckProxy, args, vals)
 	}
 	if err != nil {
 		if r.Child != nil {
@@ -146,6 +172,15 @@ func (c *Context) Request(r Request, args ...interface{}) error {
 		_ = CloseSentFD(fd)
 	}
 	return nil
+}
+
+// sendChecked validates the proxy, then sends with check run under the send
+// lock (CheckProxy for plain requests, claimDestroy for destructors).
+func (c *Context) sendChecked(proxy Proxy, opcode uint32, fds []int, check func(Proxy) error, args []interface{}, vals []Arg) error {
+	if err := c.CheckProxy(proxy); err != nil {
+		return err
+	}
+	return c.display.sendRequest(proxy.ID(), uint16(opcode), fds, func() error { return check(proxy) }, args, vals)
 }
 
 // SendDestructor sends a destructor request exactly once. The proxy is
@@ -161,10 +196,7 @@ func (c *Context) SendDestructor(proxy Proxy, opcode uint32, args ...interface{}
 // SendDestructorWithFDs is SendDestructor for requests carrying FDs. On error
 // the FDs remain owned by the caller.
 func (c *Context) SendDestructorWithFDs(proxy Proxy, opcode uint32, fds []int, args ...interface{}) error {
-	if err := c.CheckProxy(proxy); err != nil {
-		return err
-	}
-	return c.display.sendRequest(proxy.ID(), uint16(opcode), fds, func() error { return c.claimDestroy(proxy) }, args)
+	return c.sendChecked(proxy, opcode, fds, c.claimDestroy, args, nil)
 }
 
 func (c *Context) claimDestroy(proxy Proxy) error {

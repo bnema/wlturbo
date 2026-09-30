@@ -2,6 +2,28 @@
 // Protocol: viewporter
 // Source: viewporter.xml
 
+// Upstream protocol copyright and license:
+// Copyright © 2013-2016 Collabora, Ltd.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a
+// copy of this software and associated documentation files (the "Software"),
+// to deal in the Software without restriction, including without limitation
+// the rights to use, copy, modify, merge, publish, distribute, sublicense,
+// and/or sell copies of the Software, and to permit persons to whom the
+// Software is furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice (including the next
+// paragraph) shall be included in all copies or substantial portions of the
+// Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
+// THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+// FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+// DEALINGS IN THE SOFTWARE.
+
 package viewporter
 
 import (
@@ -42,7 +64,7 @@ func NewWpViewporter(ctx *wl.Context) *WpViewporter {
 
 // Informs the server that the client will not be using this protocol object anymore. This does not affect any other objects, wp_viewport objects included.
 func (o *WpViewporter) Destroy() error {
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 0, Name: "wp_viewporter.destroy", Destructor: true}); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 0, Name: "wp_viewporter.destroy", Destructor: true}); err != nil {
 		return err
 	}
 	return nil
@@ -56,7 +78,7 @@ func (o *WpViewporter) GetViewport(surface *cross_wl_surface.Surface) (*WpViewpo
 	}
 	child := &WpViewport{}
 	child.SetContext(o.Context())
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 1, Name: "wp_viewporter.get_viewport", Child: child}, child, arg1); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 1, Name: "wp_viewporter.get_viewport", Child: child}, wl.ArgObject(child), wl.ArgObject(arg1)); err != nil {
 		return nil, err
 	}
 	return child, nil
@@ -95,7 +117,7 @@ func NewWpViewport(ctx *wl.Context) *WpViewport {
 
 // The associated wl_surface's crop and scale state is removed. The change is applied on the next wl_surface.commit.
 func (o *WpViewport) Destroy() error {
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 0, Name: "wp_viewport.destroy", Destructor: true}); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 0, Name: "wp_viewport.destroy", Destructor: true}); err != nil {
 		return err
 	}
 	return nil
@@ -103,7 +125,7 @@ func (o *WpViewport) Destroy() error {
 
 // Set the source rectangle of the associated wl_surface. See wp_viewport for the description, and relation to the wl_buffer size. If all of x, y, width and height are -1.0, the source rectangle is unset instead. Any other set of values where width or height are zero or negative, or x or y are negative, raise the bad_value protocol error. The crop and scale state is double-buffered, see wl_surface.commit.
 func (o *WpViewport) SetSource(x wl.Fixed, y wl.Fixed, width wl.Fixed, height wl.Fixed) error {
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 1, Name: "wp_viewport.set_source"}, x, y, width, height); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 1, Name: "wp_viewport.set_source"}, wl.ArgFixed(x), wl.ArgFixed(y), wl.ArgFixed(width), wl.ArgFixed(height)); err != nil {
 		return err
 	}
 	return nil
@@ -111,7 +133,7 @@ func (o *WpViewport) SetSource(x wl.Fixed, y wl.Fixed, width wl.Fixed, height wl
 
 // Set the destination size of the associated wl_surface. See wp_viewport for the description, and relation to the wl_buffer size. If width is -1 and height is -1, the destination size is unset instead. Any other pair of values for width and height that contains zero or negative values raises the bad_value protocol error. The crop and scale state is double-buffered, see wl_surface.commit.
 func (o *WpViewport) SetDestination(width int32, height int32) error {
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 2, Name: "wp_viewport.set_destination"}, width, height); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 2, Name: "wp_viewport.set_destination"}, wl.ArgInt(width), wl.ArgInt(height)); err != nil {
 		return err
 	}
 	return nil

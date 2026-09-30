@@ -2,6 +2,32 @@
 // Protocol: wayland
 // Source: wayland.xml
 
+// Upstream protocol copyright and license:
+// Copyright © 2008-2011 Kristian Høgsberg
+// Copyright © 2010-2011 Intel Corporation
+// Copyright © 2012-2013 Collabora, Ltd.
+//
+// Permission is hereby granted, free of charge, to any person
+// obtaining a copy of this software and associated documentation files
+// (the "Software"), to deal in the Software without restriction,
+// including without limitation the rights to use, copy, modify, merge,
+// publish, distribute, sublicense, and/or sell copies of the Software,
+// and to permit persons to whom the Software is furnished to do so,
+// subject to the following conditions:
+//
+// The above copyright notice and this permission notice (including the
+// next paragraph) shall be included in all copies or substantial
+// portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+// EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+// NONINFRINGEMENT.  IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
+// BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
+// ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+// CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
 package core
 
 import (
@@ -775,7 +801,7 @@ func NewCompositor(ctx *wl.Context) *Compositor {
 func (o *Compositor) CreateSurface() (*Surface, error) {
 	child := &Surface{}
 	child.SetContext(o.Context())
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 0, Name: "wl_compositor.create_surface", Child: child}, child); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 0, Name: "wl_compositor.create_surface", Child: child}, wl.ArgObject(child)); err != nil {
 		return nil, err
 	}
 	return child, nil
@@ -785,7 +811,7 @@ func (o *Compositor) CreateSurface() (*Surface, error) {
 func (o *Compositor) CreateRegion() (*Region, error) {
 	child := &Region{}
 	child.SetContext(o.Context())
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 1, Name: "wl_compositor.create_region", Child: child}, child); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 1, Name: "wl_compositor.create_region", Child: child}, wl.ArgObject(child)); err != nil {
 		return nil, err
 	}
 	return child, nil
@@ -793,7 +819,7 @@ func (o *Compositor) CreateRegion() (*Region, error) {
 
 // This request destroys the wl_compositor. This has no effect on any other objects.
 func (o *Compositor) Release() error {
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 2, Name: "wl_compositor.release", Since: 7, Destructor: true}); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 2, Name: "wl_compositor.release", Since: 7, Destructor: true}); err != nil {
 		return err
 	}
 	return nil
@@ -834,7 +860,7 @@ func NewShmPool(ctx *wl.Context) *ShmPool {
 func (o *ShmPool) CreateBuffer(offset int32, width int32, height int32, stride int32, format uint32) (*Buffer, error) {
 	child := &Buffer{}
 	child.SetContext(o.Context())
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 0, Name: "wl_shm_pool.create_buffer", Child: child}, child, offset, width, height, stride, format); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 0, Name: "wl_shm_pool.create_buffer", Child: child}, wl.ArgObject(child), wl.ArgInt(offset), wl.ArgInt(width), wl.ArgInt(height), wl.ArgInt(stride), wl.ArgUint(format)); err != nil {
 		return nil, err
 	}
 	return child, nil
@@ -842,7 +868,7 @@ func (o *ShmPool) CreateBuffer(offset int32, width int32, height int32, stride i
 
 // Destroy the shared memory pool. The mmapped memory will be released when all buffers that have been created from this pool are gone.
 func (o *ShmPool) Destroy() error {
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 1, Name: "wl_shm_pool.destroy", Destructor: true}); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 1, Name: "wl_shm_pool.destroy", Destructor: true}); err != nil {
 		return err
 	}
 	return nil
@@ -850,7 +876,7 @@ func (o *ShmPool) Destroy() error {
 
 // This request will cause the server to remap the backing memory for the pool from the file descriptor passed when the pool was created, but using the new size.  This request can only be used to make the pool bigger. This request only changes the amount of bytes that are mmapped by the server and does not touch the file corresponding to the file descriptor passed at creation time. It is the client's responsibility to ensure that the file is at least as big as the new pool size.
 func (o *ShmPool) Resize(size int32) error {
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 2, Name: "wl_shm_pool.resize"}, size); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 2, Name: "wl_shm_pool.resize"}, wl.ArgInt(size)); err != nil {
 		return err
 	}
 	return nil
@@ -895,7 +921,7 @@ func NewShm(ctx *wl.Context) *Shm {
 func (o *Shm) CreatePool(fd int, size int32) (*ShmPool, error) {
 	child := &ShmPool{}
 	child.SetContext(o.Context())
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 0, Name: "wl_shm.create_pool", Child: child, FDs: []int{fd}}, child, uintptr(fd), size); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 0, Name: "wl_shm.create_pool", Child: child, FDs: []int{fd}}, wl.ArgObject(child), wl.ArgFD(), wl.ArgInt(size)); err != nil {
 		return nil, err
 	}
 	return child, nil
@@ -903,7 +929,7 @@ func (o *Shm) CreatePool(fd int, size int32) (*ShmPool, error) {
 
 // Using this request a client can tell the server that it is not going to use the shm object anymore. Objects created via this interface remain unaffected.
 func (o *Shm) Release() error {
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 1, Name: "wl_shm.release", Since: 2, Destructor: true}); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 1, Name: "wl_shm.release", Since: 2, Destructor: true}); err != nil {
 		return err
 	}
 	return nil
@@ -977,7 +1003,7 @@ func NewBuffer(ctx *wl.Context) *Buffer {
 
 // Destroy a buffer. If and how you need to release the backing storage is defined by the buffer factory interface. For possible side-effects to a surface, see wl_surface.attach.
 func (o *Buffer) Destroy() error {
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 0, Name: "wl_buffer.destroy", Destructor: true}); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 0, Name: "wl_buffer.destroy", Destructor: true}); err != nil {
 		return err
 	}
 	return nil
@@ -1052,7 +1078,7 @@ func NewDataOffer(ctx *wl.Context) *DataOffer {
 
 // Indicate that the client can accept the given mime type, or NULL for not accepted. For objects of version 2 or older, this request is used by the client to give feedback whether the client can receive the given mime type, or NULL if none is accepted; the feedback does not determine whether the drag-and-drop operation succeeds or not. For objects of version 3 or newer, this request determines the final result of the drag-and-drop operation. If the end result is that no mime types were accepted, the drag-and-drop operation will be cancelled and the corresponding drag source will receive wl_data_source.cancelled. Clients may still use this event in conjunction with wl_data_source.action for feedback.
 func (o *DataOffer) Accept(serial uint32, mimeType string) error {
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 0, Name: "wl_data_offer.accept"}, serial, mimeType); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 0, Name: "wl_data_offer.accept"}, wl.ArgUint(serial), wl.ArgString(mimeType)); err != nil {
 		return err
 	}
 	return nil
@@ -1060,7 +1086,7 @@ func (o *DataOffer) Accept(serial uint32, mimeType string) error {
 
 // To transfer the offered data, the client issues this request and indicates the mime type it wants to receive.  The transfer happens through the passed file descriptor (typically created with the pipe system call).  The source client writes the data in the mime type representation requested and then closes the file descriptor. The receiving client reads from the read end of the pipe until EOF and then closes its end, at which point the transfer is complete. This request may happen multiple times for different mime types, both before and after wl_data_device.drop. Drag-and-drop destination clients may preemptively fetch data or examine it more closely to determine acceptance.
 func (o *DataOffer) Receive(mimeType string, fd int) error {
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 1, Name: "wl_data_offer.receive", FDs: []int{fd}}, mimeType, uintptr(fd)); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 1, Name: "wl_data_offer.receive", FDs: []int{fd}}, wl.ArgString(mimeType), wl.ArgFD()); err != nil {
 		return err
 	}
 	return nil
@@ -1068,7 +1094,7 @@ func (o *DataOffer) Receive(mimeType string, fd int) error {
 
 // Destroy the data offer.
 func (o *DataOffer) Destroy() error {
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 2, Name: "wl_data_offer.destroy", Destructor: true}); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 2, Name: "wl_data_offer.destroy", Destructor: true}); err != nil {
 		return err
 	}
 	return nil
@@ -1076,7 +1102,7 @@ func (o *DataOffer) Destroy() error {
 
 // Notifies the compositor that the drag destination successfully finished the drag-and-drop operation. Upon receiving this request, the compositor will emit wl_data_source.dnd_finished on the drag source client. It is a client error to perform other requests than wl_data_offer.destroy after this one. It is also an error to perform this request after a NULL mime type has been set in wl_data_offer.accept or no action was received through wl_data_offer.action. If wl_data_offer.finish request is received for a non drag and drop operation, the invalid_finish protocol error is raised.
 func (o *DataOffer) Finish() error {
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 3, Name: "wl_data_offer.finish", Since: 3}); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 3, Name: "wl_data_offer.finish", Since: 3}); err != nil {
 		return err
 	}
 	return nil
@@ -1084,7 +1110,7 @@ func (o *DataOffer) Finish() error {
 
 // Sets the actions that the destination side client supports for this operation. This request may trigger the emission of wl_data_source.action and wl_data_offer.action events if the compositor needs to change the selected action. This request can be called multiple times throughout the drag-and-drop operation, typically in response to wl_data_device.enter or wl_data_device.motion events. This request determines the final result of the drag-and-drop operation. If the end result is that no action is accepted, the drag source will receive wl_data_source.cancelled. The dnd_actions argument must contain only values expressed in the wl_data_device_manager.dnd_actions enum, and the preferred_action argument must only contain one of those values set, otherwise it will result in a protocol error. While managing an "ask" action, the destination drag-and-drop client may perform further wl_data_offer.receive requests, and is expected to perform one last wl_data_offer.set_actions request with a preferred action other than "ask" (and optionally wl_data_offer.accept) before requesting wl_data_offer.finish, in order to convey the action selected by the user. If the preferred action is not in the wl_data_offer.source_actions mask, an error will be raised. If the "ask" action is dismissed (e.g. user cancellation), the client is expected to perform wl_data_offer.destroy right away. This request can only be made on drag-and-drop offers, a protocol error will be raised otherwise.
 func (o *DataOffer) SetActions(dndActions uint32, preferredAction uint32) error {
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 4, Name: "wl_data_offer.set_actions", Since: 3}, dndActions, preferredAction); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 4, Name: "wl_data_offer.set_actions", Since: 3}, wl.ArgUint(dndActions), wl.ArgUint(preferredAction)); err != nil {
 		return err
 	}
 	return nil
@@ -1225,7 +1251,7 @@ func NewDataSource(ctx *wl.Context) *DataSource {
 
 // This request adds a mime type to the set of mime types advertised to targets.  Can be called several times to offer multiple types.
 func (o *DataSource) Offer(mimeType string) error {
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 0, Name: "wl_data_source.offer"}, mimeType); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 0, Name: "wl_data_source.offer"}, wl.ArgString(mimeType)); err != nil {
 		return err
 	}
 	return nil
@@ -1233,7 +1259,7 @@ func (o *DataSource) Offer(mimeType string) error {
 
 // Destroy the data source.
 func (o *DataSource) Destroy() error {
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 1, Name: "wl_data_source.destroy", Destructor: true}); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 1, Name: "wl_data_source.destroy", Destructor: true}); err != nil {
 		return err
 	}
 	return nil
@@ -1241,7 +1267,7 @@ func (o *DataSource) Destroy() error {
 
 // Sets the actions that the source side client supports for this operation. This request may trigger wl_data_source.action and wl_data_offer.action events if the compositor needs to change the selected action. The dnd_actions argument must contain only values expressed in the wl_data_device_manager.dnd_actions enum, otherwise it will result in a protocol error. This request must be made once only, and can only be made on sources used in drag-and-drop, so it must be performed before wl_data_device.start_drag. Attempting to use the source other than for drag-and-drop will raise a protocol error.
 func (o *DataSource) SetActions(dndActions uint32) error {
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 2, Name: "wl_data_source.set_actions", Since: 3}, dndActions); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 2, Name: "wl_data_source.set_actions", Since: 3}, wl.ArgUint(dndActions)); err != nil {
 		return err
 	}
 	return nil
@@ -1489,7 +1515,7 @@ func (o *DataDevice) StartDrag(source *DataSource, origin *Surface, icon *Surfac
 	if icon != nil {
 		arg2 = icon
 	}
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 0, Name: "wl_data_device.start_drag"}, arg0, arg1, arg2, serial); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 0, Name: "wl_data_device.start_drag"}, wl.ArgObject(arg0), wl.ArgObject(arg1), wl.ArgObject(arg2), wl.ArgUint(serial)); err != nil {
 		return err
 	}
 	return nil
@@ -1501,7 +1527,7 @@ func (o *DataDevice) SetSelection(source *DataSource, serial uint32) error {
 	if source != nil {
 		arg0 = source
 	}
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 1, Name: "wl_data_device.set_selection"}, arg0, serial); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 1, Name: "wl_data_device.set_selection"}, wl.ArgObject(arg0), wl.ArgUint(serial)); err != nil {
 		return err
 	}
 	return nil
@@ -1509,7 +1535,7 @@ func (o *DataDevice) SetSelection(source *DataSource, serial uint32) error {
 
 // This request destroys the data device.
 func (o *DataDevice) Release() error {
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 2, Name: "wl_data_device.release", Since: 2, Destructor: true}); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 2, Name: "wl_data_device.release", Since: 2, Destructor: true}); err != nil {
 		return err
 	}
 	return nil
@@ -1745,7 +1771,7 @@ func NewDataDeviceManager(ctx *wl.Context) *DataDeviceManager {
 func (o *DataDeviceManager) CreateDataSource() (*DataSource, error) {
 	child := &DataSource{}
 	child.SetContext(o.Context())
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 0, Name: "wl_data_device_manager.create_data_source", Child: child}, child); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 0, Name: "wl_data_device_manager.create_data_source", Child: child}, wl.ArgObject(child)); err != nil {
 		return nil, err
 	}
 	return child, nil
@@ -1759,7 +1785,7 @@ func (o *DataDeviceManager) GetDataDevice(seat *Seat) (*DataDevice, error) {
 	}
 	child := &DataDevice{}
 	child.SetContext(o.Context())
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 1, Name: "wl_data_device_manager.get_data_device", Child: child}, child, arg1); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 1, Name: "wl_data_device_manager.get_data_device", Child: child}, wl.ArgObject(child), wl.ArgObject(arg1)); err != nil {
 		return nil, err
 	}
 	return child, nil
@@ -1767,7 +1793,7 @@ func (o *DataDeviceManager) GetDataDevice(seat *Seat) (*DataDevice, error) {
 
 // This request destroys the wl_data_device_manager. This has no effect on any other objects.
 func (o *DataDeviceManager) Release() error {
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 2, Name: "wl_data_device_manager.release", Since: 4, Destructor: true}); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 2, Name: "wl_data_device_manager.release", Since: 4, Destructor: true}); err != nil {
 		return err
 	}
 	return nil
@@ -1812,7 +1838,7 @@ func (o *Shell) GetShellSurface(surface *Surface) (*ShellSurface, error) {
 	}
 	child := &ShellSurface{}
 	child.SetContext(o.Context())
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 0, Name: "wl_shell.get_shell_surface", Child: child}, child, arg1); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 0, Name: "wl_shell.get_shell_surface", Child: child}, wl.ArgObject(child), wl.ArgObject(arg1)); err != nil {
 		return nil, err
 	}
 	return child, nil
@@ -1857,7 +1883,7 @@ func NewShellSurface(ctx *wl.Context) *ShellSurface {
 
 // A client must respond to a ping event with a pong request or the client may be deemed unresponsive.
 func (o *ShellSurface) Pong(serial uint32) error {
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 0, Name: "wl_shell_surface.pong"}, serial); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 0, Name: "wl_shell_surface.pong"}, wl.ArgUint(serial)); err != nil {
 		return err
 	}
 	return nil
@@ -1869,7 +1895,7 @@ func (o *ShellSurface) Move(seat *Seat, serial uint32) error {
 	if seat != nil {
 		arg0 = seat
 	}
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 1, Name: "wl_shell_surface.move"}, arg0, serial); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 1, Name: "wl_shell_surface.move"}, wl.ArgObject(arg0), wl.ArgUint(serial)); err != nil {
 		return err
 	}
 	return nil
@@ -1881,7 +1907,7 @@ func (o *ShellSurface) Resize(seat *Seat, serial uint32, edges uint32) error {
 	if seat != nil {
 		arg0 = seat
 	}
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 2, Name: "wl_shell_surface.resize"}, arg0, serial, edges); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 2, Name: "wl_shell_surface.resize"}, wl.ArgObject(arg0), wl.ArgUint(serial), wl.ArgUint(edges)); err != nil {
 		return err
 	}
 	return nil
@@ -1889,7 +1915,7 @@ func (o *ShellSurface) Resize(seat *Seat, serial uint32, edges uint32) error {
 
 // Map the surface as a toplevel surface. A toplevel surface is not fullscreen, maximized or transient.
 func (o *ShellSurface) SetToplevel() error {
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 3, Name: "wl_shell_surface.set_toplevel"}); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 3, Name: "wl_shell_surface.set_toplevel"}); err != nil {
 		return err
 	}
 	return nil
@@ -1901,7 +1927,7 @@ func (o *ShellSurface) SetTransient(parent *Surface, x int32, y int32, flags uin
 	if parent != nil {
 		arg0 = parent
 	}
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 4, Name: "wl_shell_surface.set_transient"}, arg0, x, y, flags); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 4, Name: "wl_shell_surface.set_transient"}, wl.ArgObject(arg0), wl.ArgInt(x), wl.ArgInt(y), wl.ArgUint(flags)); err != nil {
 		return err
 	}
 	return nil
@@ -1913,7 +1939,7 @@ func (o *ShellSurface) SetFullscreen(method uint32, framerate uint32, output *Ou
 	if output != nil {
 		arg2 = output
 	}
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 5, Name: "wl_shell_surface.set_fullscreen"}, method, framerate, arg2); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 5, Name: "wl_shell_surface.set_fullscreen"}, wl.ArgUint(method), wl.ArgUint(framerate), wl.ArgObject(arg2)); err != nil {
 		return err
 	}
 	return nil
@@ -1929,7 +1955,7 @@ func (o *ShellSurface) SetPopup(seat *Seat, serial uint32, parent *Surface, x in
 	if parent != nil {
 		arg2 = parent
 	}
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 6, Name: "wl_shell_surface.set_popup"}, arg0, serial, arg2, x, y, flags); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 6, Name: "wl_shell_surface.set_popup"}, wl.ArgObject(arg0), wl.ArgUint(serial), wl.ArgObject(arg2), wl.ArgInt(x), wl.ArgInt(y), wl.ArgUint(flags)); err != nil {
 		return err
 	}
 	return nil
@@ -1941,7 +1967,7 @@ func (o *ShellSurface) SetMaximized(output *Output) error {
 	if output != nil {
 		arg0 = output
 	}
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 7, Name: "wl_shell_surface.set_maximized"}, arg0); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 7, Name: "wl_shell_surface.set_maximized"}, wl.ArgObject(arg0)); err != nil {
 		return err
 	}
 	return nil
@@ -1949,7 +1975,7 @@ func (o *ShellSurface) SetMaximized(output *Output) error {
 
 // Set a short title for the surface. This string may be used to identify the surface in a task bar, window list, or other user interface elements provided by the compositor. The string must be encoded in UTF-8.
 func (o *ShellSurface) SetTitle(title string) error {
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 8, Name: "wl_shell_surface.set_title"}, title); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 8, Name: "wl_shell_surface.set_title"}, wl.ArgString(title)); err != nil {
 		return err
 	}
 	return nil
@@ -1957,7 +1983,7 @@ func (o *ShellSurface) SetTitle(title string) error {
 
 // Set a class for the surface. The surface class identifies the general class of applications to which the surface belongs. A common convention is to use the file name (or the full path if it is a non-standard location) of the application's .desktop file as the class.
 func (o *ShellSurface) SetClass(class string) error {
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 9, Name: "wl_shell_surface.set_class"}, class); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 9, Name: "wl_shell_surface.set_class"}, wl.ArgString(class)); err != nil {
 		return err
 	}
 	return nil
@@ -2097,7 +2123,7 @@ func NewSurface(ctx *wl.Context) *Surface {
 
 // Deletes the surface and invalidates its object ID.
 func (o *Surface) Destroy() error {
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 0, Name: "wl_surface.destroy", Destructor: true}); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 0, Name: "wl_surface.destroy", Destructor: true}); err != nil {
 		return err
 	}
 	return nil
@@ -2109,7 +2135,7 @@ func (o *Surface) Attach(buffer *Buffer, x int32, y int32) error {
 	if buffer != nil {
 		arg0 = buffer
 	}
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 1, Name: "wl_surface.attach"}, arg0, x, y); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 1, Name: "wl_surface.attach"}, wl.ArgObject(arg0), wl.ArgInt(x), wl.ArgInt(y)); err != nil {
 		return err
 	}
 	return nil
@@ -2117,7 +2143,7 @@ func (o *Surface) Attach(buffer *Buffer, x int32, y int32) error {
 
 // This request is used to describe the regions where the pending buffer is different from the current surface contents, and where the surface therefore needs to be repainted. The compositor ignores the parts of the damage that fall outside of the surface. Damage is double-buffered state, see wl_surface.commit. The damage rectangle is specified in surface-local coordinates, where x and y specify the upper left corner of the damage rectangle. The initial value for pending damage is empty: no damage. wl_surface.damage adds pending damage: the new pending damage is the union of old pending damage and the given rectangle. wl_surface.commit assigns pending damage as the current damage, and clears pending damage. The server will clear the current damage as it repaints the surface. Note! New clients should not use this request. Instead damage can be posted with wl_surface.damage_buffer which uses buffer coordinates instead of surface coordinates.
 func (o *Surface) Damage(x int32, y int32, width int32, height int32) error {
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 2, Name: "wl_surface.damage"}, x, y, width, height); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 2, Name: "wl_surface.damage"}, wl.ArgInt(x), wl.ArgInt(y), wl.ArgInt(width), wl.ArgInt(height)); err != nil {
 		return err
 	}
 	return nil
@@ -2127,7 +2153,7 @@ func (o *Surface) Damage(x int32, y int32, width int32, height int32) error {
 func (o *Surface) Frame() (*Callback, error) {
 	child := &Callback{}
 	child.SetContext(o.Context())
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 3, Name: "wl_surface.frame", Child: child}, child); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 3, Name: "wl_surface.frame", Child: child}, wl.ArgObject(child)); err != nil {
 		return nil, err
 	}
 	return child, nil
@@ -2139,7 +2165,7 @@ func (o *Surface) SetOpaqueRegion(region *Region) error {
 	if region != nil {
 		arg0 = region
 	}
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 4, Name: "wl_surface.set_opaque_region"}, arg0); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 4, Name: "wl_surface.set_opaque_region"}, wl.ArgObject(arg0)); err != nil {
 		return err
 	}
 	return nil
@@ -2151,7 +2177,7 @@ func (o *Surface) SetInputRegion(region *Region) error {
 	if region != nil {
 		arg0 = region
 	}
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 5, Name: "wl_surface.set_input_region"}, arg0); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 5, Name: "wl_surface.set_input_region"}, wl.ArgObject(arg0)); err != nil {
 		return err
 	}
 	return nil
@@ -2159,7 +2185,7 @@ func (o *Surface) SetInputRegion(region *Region) error {
 
 // Surface state (input, opaque, and damage regions, attached buffers, etc.) is double-buffered. Protocol requests modify the pending state, as opposed to the active state in use by the compositor. All requests that need a commit to become effective are documented to affect double-buffered state. Other interfaces may add further double-buffered surface state. A commit request atomically creates a Content Update (CU) from the pending state, even if the pending state has not been touched. The content update is placed at the end of a per-surface queue until it becomes active. After commit, the new pending state is as documented for each related request. A CU is either a Desync Content Update (DCU) or a Sync Content Update (SCU). If the surface is effectively synchronized at the commit request, it is a SCU, otherwise a DCU. When a surface transitions from effectively synchronized to effectively desynchronized, all SCUs in its queue which are not reachable by any DCU become DCUs and dependency edges from outside the queue to these CUs are removed. See wl_subsurface for the definition of 'effectively synchronized' and 'effectively desynchronized'. When a CU is placed in the queue, the CU has a dependency on the CU in front of it and to the SCU at end of the queue of every direct child surface if that SCU exists and does not have another dependent. This can form a directed acyclic graph of CUs with dependencies as edges. In addition to surface state, the CU can have constraints that must be satisfied before it can be applied. Other interfaces may add CU constraints. All DCUs which do not have a SCU in front of themselves in their queue, are candidates. If the graph that's reachable by a candidate does not have any unsatisfied constraints, the entire graph must be applied atomically. When a CU is applied, the wl_buffer is applied before all other state. This means that all coordinates in double-buffered state are relative to the newly attached wl_buffers, except for wl_surface.attach itself. If there is no newly attached wl_buffer, the coordinates are relative to the previous content update.
 func (o *Surface) Commit() error {
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 6, Name: "wl_surface.commit"}); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 6, Name: "wl_surface.commit"}); err != nil {
 		return err
 	}
 	return nil
@@ -2167,7 +2193,7 @@ func (o *Surface) Commit() error {
 
 // This request sets the transformation that the client has already applied to the content of the buffer. The accepted values for the transform parameter are the values for wl_output.transform. The compositor applies the inverse of this transformation whenever it uses the buffer contents. Buffer transform is double-buffered state, see wl_surface.commit. A newly created surface has its buffer transformation set to normal. wl_surface.set_buffer_transform changes the pending buffer transformation. wl_surface.commit copies the pending buffer transformation to the current one. Otherwise, the pending and current values are never changed. The purpose of this request is to allow clients to render content according to the output transform, thus permitting the compositor to use certain optimizations even if the display is rotated. Using hardware overlays and scanning out a client buffer for fullscreen surfaces are examples of such optimizations. Those optimizations are highly dependent on the compositor implementation, so the use of this request should be considered on a case-by-case basis. Note that if the transform value includes 90 or 270 degree rotation, the width of the buffer will become the surface height and the height of the buffer will become the surface width. If transform is not one of the values from the wl_output.transform enum the invalid_transform protocol error is raised.
 func (o *Surface) SetBufferTransform(transform int32) error {
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 7, Name: "wl_surface.set_buffer_transform", Since: 2}, transform); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 7, Name: "wl_surface.set_buffer_transform", Since: 2}, wl.ArgInt(transform)); err != nil {
 		return err
 	}
 	return nil
@@ -2175,7 +2201,7 @@ func (o *Surface) SetBufferTransform(transform int32) error {
 
 // This request sets an optional scaling factor on how the compositor interprets the contents of the buffer attached to the window. Buffer scale is double-buffered state, see wl_surface.commit. A newly created surface has its buffer scale set to 1. wl_surface.set_buffer_scale changes the pending buffer scale. wl_surface.commit copies the pending buffer scale to the current one. Otherwise, the pending and current values are never changed. The purpose of this request is to allow clients to supply higher resolution buffer data for use on high resolution outputs. It is intended that you pick the same buffer scale as the scale of the output that the surface is displayed on. This means the compositor can avoid scaling when rendering the surface on that output. Note that if the scale is larger than 1, then you have to attach a buffer that is larger (by a factor of scale in each dimension) than the desired surface size. If scale is not greater than 0 the invalid_scale protocol error is raised.
 func (o *Surface) SetBufferScale(scale int32) error {
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 8, Name: "wl_surface.set_buffer_scale", Since: 3}, scale); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 8, Name: "wl_surface.set_buffer_scale", Since: 3}, wl.ArgInt(scale)); err != nil {
 		return err
 	}
 	return nil
@@ -2183,7 +2209,7 @@ func (o *Surface) SetBufferScale(scale int32) error {
 
 // This request is used to describe the regions where the pending buffer is different from the current surface contents, and where the surface therefore needs to be repainted. The compositor ignores the parts of the damage that fall outside of the surface. Damage is double-buffered state, see wl_surface.commit. The damage rectangle is specified in buffer coordinates, where x and y specify the upper left corner of the damage rectangle. The initial value for pending damage is empty: no damage. wl_surface.damage_buffer adds pending damage: the new pending damage is the union of old pending damage and the given rectangle. wl_surface.commit assigns pending damage as the current damage, and clears pending damage. The server will clear the current damage as it repaints the surface. This request differs from wl_surface.damage in only one way - it takes damage in buffer coordinates instead of surface-local coordinates. While this generally is more intuitive than surface coordinates, it is especially desirable when using wp_viewport or when a drawing library (like EGL) is unaware of buffer scale and buffer transform. Note: Because buffer transformation changes and damage requests may be interleaved in the protocol stream, it is impossible to determine the actual mapping between surface and buffer damage until wl_surface.commit time. Therefore, compositors wishing to take both kinds of damage into account will have to accumulate damage from the two requests separately and only transform from one to the other after receiving the wl_surface.commit.
 func (o *Surface) DamageBuffer(x int32, y int32, width int32, height int32) error {
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 9, Name: "wl_surface.damage_buffer", Since: 4}, x, y, width, height); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 9, Name: "wl_surface.damage_buffer", Since: 4}, wl.ArgInt(x), wl.ArgInt(y), wl.ArgInt(width), wl.ArgInt(height)); err != nil {
 		return err
 	}
 	return nil
@@ -2191,7 +2217,7 @@ func (o *Surface) DamageBuffer(x int32, y int32, width int32, height int32) erro
 
 // The x and y arguments specify the location of the new pending buffer's upper left corner, relative to the current buffer's upper left corner, in surface-local coordinates. In other words, the x and y, combined with the new surface size define in which directions the surface's size changes. The exact semantics of wl_surface.offset are role-specific. Refer to the documentation of specific roles for more information. Surface location offset is double-buffered state, see wl_surface.commit. This request is semantically equivalent to and the replaces the x and y arguments in the wl_surface.attach request in wl_surface versions prior to 5. See wl_surface.attach for details.
 func (o *Surface) Offset(x int32, y int32) error {
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 10, Name: "wl_surface.offset", Since: 5}, x, y); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 10, Name: "wl_surface.offset", Since: 5}, wl.ArgInt(x), wl.ArgInt(y)); err != nil {
 		return err
 	}
 	return nil
@@ -2201,7 +2227,7 @@ func (o *Surface) Offset(x int32, y int32) error {
 func (o *Surface) GetRelease() (*Callback, error) {
 	child := &Callback{}
 	child.SetContext(o.Context())
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 11, Name: "wl_surface.get_release", Since: 7, Child: child}, child); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 11, Name: "wl_surface.get_release", Since: 7, Child: child}, wl.ArgObject(child)); err != nil {
 		return nil, err
 	}
 	return child, nil
@@ -2371,7 +2397,7 @@ func NewSeat(ctx *wl.Context) *Seat {
 func (o *Seat) GetPointer() (*Pointer, error) {
 	child := &Pointer{}
 	child.SetContext(o.Context())
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 0, Name: "wl_seat.get_pointer", Child: child}, child); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 0, Name: "wl_seat.get_pointer", Child: child}, wl.ArgObject(child)); err != nil {
 		return nil, err
 	}
 	return child, nil
@@ -2381,7 +2407,7 @@ func (o *Seat) GetPointer() (*Pointer, error) {
 func (o *Seat) GetKeyboard() (*Keyboard, error) {
 	child := &Keyboard{}
 	child.SetContext(o.Context())
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 1, Name: "wl_seat.get_keyboard", Child: child}, child); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 1, Name: "wl_seat.get_keyboard", Child: child}, wl.ArgObject(child)); err != nil {
 		return nil, err
 	}
 	return child, nil
@@ -2391,7 +2417,7 @@ func (o *Seat) GetKeyboard() (*Keyboard, error) {
 func (o *Seat) GetTouch() (*Touch, error) {
 	child := &Touch{}
 	child.SetContext(o.Context())
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 2, Name: "wl_seat.get_touch", Child: child}, child); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 2, Name: "wl_seat.get_touch", Child: child}, wl.ArgObject(child)); err != nil {
 		return nil, err
 	}
 	return child, nil
@@ -2399,7 +2425,7 @@ func (o *Seat) GetTouch() (*Touch, error) {
 
 // Using this request a client can tell the server that it is not going to use the seat object anymore.
 func (o *Seat) Release() error {
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 3, Name: "wl_seat.release", Since: 5, Destructor: true}); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 3, Name: "wl_seat.release", Since: 5, Destructor: true}); err != nil {
 		return err
 	}
 	return nil
@@ -2519,7 +2545,7 @@ func (o *Pointer) SetCursor(serial uint32, surface *Surface, hotspotX int32, hot
 	if surface != nil {
 		arg1 = surface
 	}
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 0, Name: "wl_pointer.set_cursor"}, serial, arg1, hotspotX, hotspotY); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 0, Name: "wl_pointer.set_cursor"}, wl.ArgUint(serial), wl.ArgObject(arg1), wl.ArgInt(hotspotX), wl.ArgInt(hotspotY)); err != nil {
 		return err
 	}
 	return nil
@@ -2527,7 +2553,7 @@ func (o *Pointer) SetCursor(serial uint32, surface *Surface, hotspotX int32, hot
 
 // Using this request a client can tell the server that it is not going to use the pointer object anymore. This request destroys the pointer proxy object, so clients must not call wl_pointer_destroy() after using this request.
 func (o *Pointer) Release() error {
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 1, Name: "wl_pointer.release", Since: 3, Destructor: true}); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 1, Name: "wl_pointer.release", Since: 3, Destructor: true}); err != nil {
 		return err
 	}
 	return nil
@@ -2962,7 +2988,7 @@ func NewKeyboard(ctx *wl.Context) *Keyboard {
 
 // release the keyboard object
 func (o *Keyboard) Release() error {
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 0, Name: "wl_keyboard.release", Since: 3, Destructor: true}); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 0, Name: "wl_keyboard.release", Since: 3, Destructor: true}); err != nil {
 		return err
 	}
 	return nil
@@ -3214,7 +3240,7 @@ func NewTouch(ctx *wl.Context) *Touch {
 
 // release the touch object
 func (o *Touch) Release() error {
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 0, Name: "wl_touch.release", Since: 3, Destructor: true}); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 0, Name: "wl_touch.release", Since: 3, Destructor: true}); err != nil {
 		return err
 	}
 	return nil
@@ -3490,7 +3516,7 @@ func NewOutput(ctx *wl.Context) *Output {
 
 // Using this request a client can tell the server that it is not going to use the output object anymore.
 func (o *Output) Release() error {
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 0, Name: "wl_output.release", Since: 3, Destructor: true}); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 0, Name: "wl_output.release", Since: 3, Destructor: true}); err != nil {
 		return err
 	}
 	return nil
@@ -3724,7 +3750,7 @@ func NewRegion(ctx *wl.Context) *Region {
 
 // Destroy the region.  This will invalidate the object ID.
 func (o *Region) Destroy() error {
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 0, Name: "wl_region.destroy", Destructor: true}); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 0, Name: "wl_region.destroy", Destructor: true}); err != nil {
 		return err
 	}
 	return nil
@@ -3732,7 +3758,7 @@ func (o *Region) Destroy() error {
 
 // Add the specified rectangle to the region.
 func (o *Region) Add(x int32, y int32, width int32, height int32) error {
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 1, Name: "wl_region.add"}, x, y, width, height); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 1, Name: "wl_region.add"}, wl.ArgInt(x), wl.ArgInt(y), wl.ArgInt(width), wl.ArgInt(height)); err != nil {
 		return err
 	}
 	return nil
@@ -3740,7 +3766,7 @@ func (o *Region) Add(x int32, y int32, width int32, height int32) error {
 
 // Subtract the specified rectangle from the region.
 func (o *Region) Subtract(x int32, y int32, width int32, height int32) error {
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 2, Name: "wl_region.subtract"}, x, y, width, height); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 2, Name: "wl_region.subtract"}, wl.ArgInt(x), wl.ArgInt(y), wl.ArgInt(width), wl.ArgInt(height)); err != nil {
 		return err
 	}
 	return nil
@@ -3779,7 +3805,7 @@ func NewSubcompositor(ctx *wl.Context) *Subcompositor {
 
 // Informs the server that the client will not be using this protocol object anymore. This does not affect any other objects, wl_subsurface objects included.
 func (o *Subcompositor) Destroy() error {
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 0, Name: "wl_subcompositor.destroy", Destructor: true}); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 0, Name: "wl_subcompositor.destroy", Destructor: true}); err != nil {
 		return err
 	}
 	return nil
@@ -3797,7 +3823,7 @@ func (o *Subcompositor) GetSubsurface(surface *Surface, parent *Surface) (*Subsu
 	}
 	child := &Subsurface{}
 	child.SetContext(o.Context())
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 1, Name: "wl_subcompositor.get_subsurface", Child: child}, child, arg1, arg2); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 1, Name: "wl_subcompositor.get_subsurface", Child: child}, wl.ArgObject(child), wl.ArgObject(arg1), wl.ArgObject(arg2)); err != nil {
 		return nil, err
 	}
 	return child, nil
@@ -3836,7 +3862,7 @@ func NewSubsurface(ctx *wl.Context) *Subsurface {
 
 // The sub-surface interface is removed from the wl_surface object that was turned into a sub-surface with a wl_subcompositor.get_subsurface request. The wl_surface's association to the parent is deleted. The wl_surface is unmapped immediately.
 func (o *Subsurface) Destroy() error {
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 0, Name: "wl_subsurface.destroy", Destructor: true}); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 0, Name: "wl_subsurface.destroy", Destructor: true}); err != nil {
 		return err
 	}
 	return nil
@@ -3844,7 +3870,7 @@ func (o *Subsurface) Destroy() error {
 
 // This sets the position of the sub-surface, relative to the parent surface. The sub-surface will be moved so that its origin (top left corner pixel) will be at the location x, y of the parent surface coordinate system. The coordinates are not restricted to the parent surface area. Negative values are allowed. The initial position is 0, 0. Position is double-buffered state on the parent surface, see wl_subsurface and wl_surface.commit for more information.
 func (o *Subsurface) SetPosition(x int32, y int32) error {
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 1, Name: "wl_subsurface.set_position"}, x, y); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 1, Name: "wl_subsurface.set_position"}, wl.ArgInt(x), wl.ArgInt(y)); err != nil {
 		return err
 	}
 	return nil
@@ -3856,7 +3882,7 @@ func (o *Subsurface) PlaceAbove(sibling *Surface) error {
 	if sibling != nil {
 		arg0 = sibling
 	}
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 2, Name: "wl_subsurface.place_above"}, arg0); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 2, Name: "wl_subsurface.place_above"}, wl.ArgObject(arg0)); err != nil {
 		return err
 	}
 	return nil
@@ -3868,7 +3894,7 @@ func (o *Subsurface) PlaceBelow(sibling *Surface) error {
 	if sibling != nil {
 		arg0 = sibling
 	}
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 3, Name: "wl_subsurface.place_below"}, arg0); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 3, Name: "wl_subsurface.place_below"}, wl.ArgObject(arg0)); err != nil {
 		return err
 	}
 	return nil
@@ -3876,7 +3902,7 @@ func (o *Subsurface) PlaceBelow(sibling *Surface) error {
 
 // Change the commit behaviour of the sub-surface to synchronized mode. See wl_subsurface and wl_surface.commit for more information.
 func (o *Subsurface) SetSync() error {
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 4, Name: "wl_subsurface.set_sync"}); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 4, Name: "wl_subsurface.set_sync"}); err != nil {
 		return err
 	}
 	return nil
@@ -3884,7 +3910,7 @@ func (o *Subsurface) SetSync() error {
 
 // Change the commit behaviour of the sub-surface to desynchronized mode. See wl_subsurface and wl_surface.commit for more information.
 func (o *Subsurface) SetDesync() error {
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 5, Name: "wl_subsurface.set_desync"}); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 5, Name: "wl_subsurface.set_desync"}); err != nil {
 		return err
 	}
 	return nil
@@ -3923,7 +3949,7 @@ func NewFixes(ctx *wl.Context) *Fixes {
 
 // destroys this object
 func (o *Fixes) Destroy() error {
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 0, Name: "wl_fixes.destroy", Destructor: true}); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 0, Name: "wl_fixes.destroy", Destructor: true}); err != nil {
 		return err
 	}
 	return nil
@@ -3935,7 +3961,7 @@ func (o *Fixes) DestroyRegistry(registry *wl.Registry) error {
 	if registry != nil {
 		arg0 = registry
 	}
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 1, Name: "wl_fixes.destroy_registry"}, arg0); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 1, Name: "wl_fixes.destroy_registry"}, wl.ArgObject(arg0)); err != nil {
 		return err
 	}
 	return nil
@@ -3947,7 +3973,7 @@ func (o *Fixes) AckGlobalRemove(registry *wl.Registry, name uint32) error {
 	if registry != nil {
 		arg0 = registry
 	}
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 2, Name: "wl_fixes.ack_global_remove", Since: 2}, arg0, name); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 2, Name: "wl_fixes.ack_global_remove", Since: 2}, wl.ArgObject(arg0), wl.ArgUint(name)); err != nil {
 		return err
 	}
 	return nil

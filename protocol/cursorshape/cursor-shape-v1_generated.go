@@ -2,6 +2,27 @@
 // Protocol: cursor_shape_v1
 // Source: cursor-shape-v1.xml
 
+// Upstream protocol copyright and license:
+// Copyright 2018 The Chromium Authors
+// Copyright 2023 Simon Ser
+//
+// Permission is hereby granted, free of charge, to any person obtaining a
+// copy of this software and associated documentation files (the "Software"),
+// to deal in the Software without restriction, including without limitation
+// the rights to use, copy, modify, merge, publish, distribute, sublicense,
+// and/or sell copies of the Software, and to permit persons to whom the
+// Software is furnished to do so, subject to the following conditions:
+// The above copyright notice and this permission notice (including the next
+// paragraph) shall be included in all copies or substantial portions of the
+// Software.
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+// THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+// FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+// DEALINGS IN THE SOFTWARE.
+
 package cursorshape
 
 import (
@@ -139,7 +160,7 @@ func NewWpCursorShapeManager(ctx *wl.Context) *WpCursorShapeManager {
 
 // Destroy the cursor shape manager.
 func (o *WpCursorShapeManager) Destroy() error {
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 0, Name: "wp_cursor_shape_manager_v1.destroy", Destructor: true}); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 0, Name: "wp_cursor_shape_manager_v1.destroy", Destructor: true}); err != nil {
 		return err
 	}
 	return nil
@@ -153,7 +174,7 @@ func (o *WpCursorShapeManager) GetPointer(pointer *cross_wl_pointer.Pointer) (*W
 	}
 	child := &WpCursorShapeDevice{}
 	child.SetContext(o.Context())
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 1, Name: "wp_cursor_shape_manager_v1.get_pointer", Child: child}, child, arg1); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 1, Name: "wp_cursor_shape_manager_v1.get_pointer", Child: child}, wl.ArgObject(child), wl.ArgObject(arg1)); err != nil {
 		return nil, err
 	}
 	return child, nil
@@ -167,7 +188,7 @@ func (o *WpCursorShapeManager) GetTabletTool(tabletTool *cross_zwp_tablet_tool_v
 	}
 	child := &WpCursorShapeDevice{}
 	child.SetContext(o.Context())
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 2, Name: "wp_cursor_shape_manager_v1.get_tablet_tool_v2", Child: child}, child, arg1); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 2, Name: "wp_cursor_shape_manager_v1.get_tablet_tool_v2", Child: child}, wl.ArgObject(child), wl.ArgObject(arg1)); err != nil {
 		return nil, err
 	}
 	return child, nil
@@ -206,7 +227,7 @@ func NewWpCursorShapeDevice(ctx *wl.Context) *WpCursorShapeDevice {
 
 // Destroy the cursor shape device. The device cursor shape remains unchanged.
 func (o *WpCursorShapeDevice) Destroy() error {
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 0, Name: "wp_cursor_shape_device_v1.destroy", Destructor: true}); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 0, Name: "wp_cursor_shape_device_v1.destroy", Destructor: true}); err != nil {
 		return err
 	}
 	return nil
@@ -214,7 +235,7 @@ func (o *WpCursorShapeDevice) Destroy() error {
 
 // Sets the device cursor to the specified shape. The compositor will change the cursor image based on the specified shape. The cursor actually changes only if the input device focus is one of the requesting client's surfaces. If any, the previous cursor image (surface or shape) is replaced. The "shape" argument must be a valid enum entry, otherwise the invalid_shape protocol error is raised. This is similar to the wl_pointer.set_cursor and zwp_tablet_tool_v2.set_cursor requests, but this request accepts a shape instead of contents in the form of a surface. Clients can mix set_cursor and set_shape requests. The serial parameter must match the latest wl_pointer.enter or zwp_tablet_tool_v2.proximity_in serial number sent to the client. Otherwise the request will be ignored.
 func (o *WpCursorShapeDevice) SetShape(serial uint32, shape uint32) error {
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 1, Name: "wp_cursor_shape_device_v1.set_shape"}, serial, shape); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 1, Name: "wp_cursor_shape_device_v1.set_shape"}, wl.ArgUint(serial), wl.ArgUint(shape)); err != nil {
 		return err
 	}
 	return nil

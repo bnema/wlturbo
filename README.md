@@ -4,7 +4,7 @@ A performance-focused Wayland client library that provides the foundational prot
 
 ## Overview
 
-WLTurbo is a low-level Wayland client library that handles core protocol communication. It serves as the base layer for higher-level libraries like [libwldevices-go](https://github.com/bnema/libwldevices-go) which implement specific Wayland protocol extensions.
+WLTurbo is a low-level Wayland client library with generated core and extension bindings. Applications and higher-level libraries use it to communicate with any compositor that advertises the required protocols.
 
 ## Architecture
 
@@ -15,11 +15,24 @@ WLTurbo provides the foundational Wayland client infrastructure:
 - **Connection Management**: Unix socket communication with the compositor
 - **Memory Management**: Shared memory support via file descriptor passing
 
-Higher-level protocol implementations (virtual input devices, output management, etc.) are intentionally left to specialized libraries that build on top of WLTurbo.
+Bindings handle wire messages and object lifecycle. Applications own rendering, input interpretation, capability fallbacks and desktop policy. WLTurbo provides client bindings, not compositor-side server implementations.
 
 ## Generated protocols
 
-`protocol/core` provides core Wayland (including data-device); `protocol/xdgshell` provides xdg-shell; `protocol/linuxdmabuf` provides linux-dmabuf v4 feedback; `protocol/drmsyncobj` provides linux-drm-syncobj v1; `protocol/viewporter` provides viewporter; `protocol/fractionalscale` provides fractional-scale v1; and `protocol/textinput` provides text-input v3. Bindings handle wire messages and object lifecycle; applications decide compositor policy.
+Packages under `protocol/` cover:
+
+| Area | Packages |
+|---|---|
+| Core and windows | `core`, `xdgshell`, `xdgdecoration`, `xdgactivation` |
+| Buffers and scaling | `linuxdmabuf`, `drmsyncobj`, `viewporter`, `fractionalscale` |
+| Presentation and color | `presentation`, `tearingcontrol`, `fifo`, `committiming`, `contenttype`, `alphamodifier`, `colormanagement`, `colorrepresentation`, `drmlease` |
+| Input | `cursorshape`, `tablet`, `textinput`, `relativepointer`, `pointerconstraints`, `pointerwarp`, `shortcutsinhibit`, `virtualkeyboard`, `inputmethod` |
+| Clipboard | Core data-device, `primaryselection`, `datacontrol` (ext-data-control) |
+| Desktop and outputs | `layershell`, `xdgoutput`, `outputmanagement`, `outputpower`, `workspace`, `foreigntoplevel` (wlr), `extforeigntoplevel`, `kdeserverdecoration` |
+| Idle | `idleinhibit`, `idlenotify` |
+| Capture | `screencopy` (wlr), `imagecapturesource`, `imagecopycapture` |
+
+Each package contains the upstream XML, generated Go bindings and a generation command. [Protocol sources](protocol/SOURCE.md) records pinned upstream revisions and checksums. A binding's presence does not imply that the compositor implements it.
 
 After `display.Roundtrip()` discovers globals, call `display.Registry().BindNegotiated(interfaceName, supportedVersion, proxy)` to bind at the lesser of the advertised and supported versions. It returns the negotiated version; use `errors.Is(err, wlturbo.ErrGlobalNotFound)` to handle absent optional globals.
 
@@ -29,7 +42,7 @@ After `display.Roundtrip()` discovers globals, call `display.Registry().BindNego
 - **Descriptor ownership**: received FDs belong to the event that declares them and are closed if a handler does not take them.
 - **Object lifecycle**: destroyed objects stay as zombies until `delete_id`, so events already in flight are dropped instead of failing the connection.
 - **Version checks**: generated requests newer than the bound object version return `ErrVersionTooLow` before anything is sent.
-- **Allocation-free requests**: marshaling fixed-size requests does not allocate.
+- **Allocation-free numeric paths**: numeric generated requests without object creation or descriptors, and typed numeric events, do not allocate after warm-up; representative cases have allocation regression tests. Object creation, received strings and descriptors have separate allocation costs.
 
 ## Quick Start
 
@@ -58,7 +71,27 @@ func main() {
 }
 ```
 
-For device control and input injection, use [libwldevices-go](https://github.com/bnema/libwldevices-go) which builds on top of WLTurbo.
+For higher-level device control, [libwldevices-go](https://github.com/bnema/libwldevices-go) builds on WLTurbo.
+
+## Development checks
+
+```sh
+GOWORK=off go generate ./...
+GOWORK=off go test ./...
+GOWORK=off go test -race ./...
+GOWORK=off go vet ./...
+GOWORK=off go test ./protocol -run '^$' -bench . -benchmem
+```
+
+Tests verify that checked-in bindings reproduce from the vendored XML. Socketpair tests exercise wire messages, versions, object lifecycle and file descriptors without a compositor.
+
+For isolated integration tests, build [NeferWL](https://github.com/bnema/neferwl) with its headless backend and pass its executable path:
+
+```sh
+env GOWORK=off WLTURBO_HEADLESS=/path/to/neferwl go test ./protocol -run Headless -v -count=1 -timeout=90s
+```
+
+The tests start a separate compositor with temporary runtime/config directories and no terminal or Xwayland. They do not use the running desktop session. Headless tests do not validate physical display timing, DRM leasing or hardware HDR output.
 
 ## Requirements
 
@@ -68,7 +101,11 @@ For device control and input injection, use [libwldevices-go](https://github.com
 
 ## License
 
-MIT License - see LICENSE file for details
+The transport and scanner are MIT-licensed; see [LICENSE](LICENSE).
+Vendored protocol XML and generated bindings retain upstream notices and terms.
+In particular, `kdeserverdecoration` is LGPL-2.1-or-later. See
+[protocol sources](protocol/SOURCE.md), the generated file headers and the
+[included LGPL text](LICENSES/LGPL-2.1-or-later.txt).
 
 ## Contributing
 
