@@ -2,6 +2,28 @@
 // Protocol: fractional_scale_v1
 // Source: fractional-scale-v1.xml
 
+// Upstream protocol copyright and license:
+// Copyright © 2022 Kenny Levinsen
+//
+// Permission is hereby granted, free of charge, to any person obtaining a
+// copy of this software and associated documentation files (the "Software"),
+// to deal in the Software without restriction, including without limitation
+// the rights to use, copy, modify, merge, publish, distribute, sublicense,
+// and/or sell copies of the Software, and to permit persons to whom the
+// Software is furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice (including the next
+// paragraph) shall be included in all copies or substantial portions of the
+// Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
+// THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+// FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+// DEALINGS IN THE SOFTWARE.
+
 package fractionalscale
 
 import (
@@ -32,7 +54,7 @@ func NewWpFractionalScaleManager(ctx *wl.Context) *WpFractionalScaleManager {
 
 // Informs the server that the client will not be using this protocol object anymore. This does not affect any other objects, wp_fractional_scale_v1 objects included.
 func (o *WpFractionalScaleManager) Destroy() error {
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 0, Name: "wp_fractional_scale_manager_v1.destroy", Destructor: true}); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 0, Name: "wp_fractional_scale_manager_v1.destroy", Destructor: true}); err != nil {
 		return err
 	}
 	return nil
@@ -46,7 +68,7 @@ func (o *WpFractionalScaleManager) GetFractionalScale(surface *cross_wl_surface.
 	}
 	child := &WpFractionalScale{}
 	child.SetContext(o.Context())
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 1, Name: "wp_fractional_scale_manager_v1.get_fractional_scale", Child: child}, child, arg1); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 1, Name: "wp_fractional_scale_manager_v1.get_fractional_scale", Child: child}, wl.ArgObject(child), wl.ArgObject(arg1)); err != nil {
 		return nil, err
 	}
 	return child, nil
@@ -89,7 +111,7 @@ func NewWpFractionalScale(ctx *wl.Context) *WpFractionalScale {
 
 // Destroy the fractional scale object. When this object is destroyed, preferred_scale events will no longer be sent.
 func (o *WpFractionalScale) Destroy() error {
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 0, Name: "wp_fractional_scale_v1.destroy", Destructor: true}); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 0, Name: "wp_fractional_scale_v1.destroy", Destructor: true}); err != nil {
 		return err
 	}
 	return nil

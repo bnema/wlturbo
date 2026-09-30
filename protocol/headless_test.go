@@ -4,6 +4,7 @@ package protocol_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -21,67 +22,14 @@ import (
 	"github.com/bnema/wlturbo/protocol/linuxdmabuf"
 	"github.com/bnema/wlturbo/protocol/viewporter"
 	"github.com/bnema/wlturbo/protocol/xdgshell"
+	"golang.org/x/sys/unix"
 )
 
 func TestHeadlessNeferWL(t *testing.T) {
-	binary := os.Getenv("WLTURBO_HEADLESS")
-	if binary == "" {
-		t.Skip("set WLTURBO_HEADLESS to a NeferWL binary")
-	}
-	binary, e := filepath.Abs(binary)
-	noerr(t, e)
-	runtimeDir := filepath.Join(t.TempDir(), "run")
-	noerr(t, os.Mkdir(runtimeDir, 0700))
-	configDir := filepath.Join(t.TempDir(), "config")
-	noerr(t, os.Mkdir(configDir, 0700))
-	ctx, cancel := context.WithTimeout(context.Background(), 18*time.Second)
-	defer cancel()
-	cmd := exec.Command(binary, "--backend=headless", "--no-terminal", "--no-xwayland", "--size", "640x480", "--timeout", "20s")
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Env = append(cleanDisplayEnv(os.Environ()), "XDG_RUNTIME_DIR="+runtimeDir, "XDG_CONFIG_HOME="+configDir)
-	log, e := os.Create(filepath.Join(t.TempDir(), "neferwl.log"))
-	noerr(t, e)
-	defer log.Close()
-	cmd.Stdout = log
-	cmd.Stderr = log
-	noerr(t, cmd.Start())
-	t.Cleanup(func() { _ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL); _ = cmd.Wait() })
-	// A failed startup must still terminate its process group and reap it.
-	socket := ""
-	for socket == "" {
-		if e := ctx.Err(); e != nil {
-			t.Fatalf("headless socket timeout: %v\n%s", e, headlessLog(log))
-		}
-		paths, _ := filepath.Glob(filepath.Join(runtimeDir, "wayland-*"))
-		for _, path := range paths {
-			info, e := os.Stat(path)
-			if e == nil && info.Mode()&os.ModeSocket != 0 {
-				socket = path
-				break
-			}
-		}
-		if socket == "" {
-			time.Sleep(20 * time.Millisecond)
-		}
-	}
-	conn, e := net.DialTimeout("unix", socket, time.Second)
-	noerr(t, e)
-	d, e := wlturbo.ConnectFromConn(conn)
-	noerr(t, e)
-	defer d.Close()
-	// Close the socket when the test deadline expires so blocking Dispatch exits.
-	stop := context.AfterFunc(ctx, func() { _ = d.Close() })
-	defer stop()
-	noerr(t, d.Roundtrip())
-	bind := func(iface string, supported uint32, proxy wlturbo.Proxy) uint32 {
-		t.Helper()
-		v, err := d.Registry().BindNegotiated(iface, supported, proxy)
-		if err != nil {
-			t.Fatalf("bind %s: %v\n%s", iface, err, headlessLog(log))
-		}
-		t.Logf("%s negotiated=%d", iface, v)
-		return v
-	}
+	h := startHeadless(t)
+	d := h.connect(t)
+	bind := h.binder(t, d)
+	ctx := h.ctx
 	compositor := core.NewCompositor(d.Context())
 	bind(core.CompositorInterface, 6, compositor)
 	wm := xdgshell.NewXdgWmBase(d.Context())
@@ -93,7 +41,7 @@ func TestHeadlessNeferWL(t *testing.T) {
 	syncManager := drmsyncobj.NewWpLinuxDrmSyncobjManager(d.Context())
 	bind(drmsyncobj.WpLinuxDrmSyncobjManagerInterface, 1, syncManager)
 	dataManager := core.NewDataDeviceManager(d.Context())
-	bind(core.DataDeviceManagerInterface, 4, dataManager)
+	dataVersion := bind(core.DataDeviceManagerInterface, 4, dataManager)
 	vp := viewporter.NewWpViewporter(d.Context())
 	bind(viewporter.WpViewporterInterface, 1, vp)
 	if g, ok := d.Registry().FindGlobal(fractionalscale.WpFractionalScaleManagerInterface); ok {
@@ -138,11 +86,11 @@ func TestHeadlessNeferWL(t *testing.T) {
 	noerr(t, surface.Commit())
 	for (!configured || !done) && ctx.Err() == nil {
 		if e := d.Dispatch(); e != nil {
-			t.Fatalf("dispatch: %v\n%s", e, headlessLog(log))
+			t.Fatalf("dispatch: %v\n%s", e, h.Log())
 		}
 	}
 	if !configured || !done || !mainDevice || !tableOK {
-		t.Fatalf("configure=%t feedback=%t main_device=%t table=%t: %v\n%s", configured, done, mainDevice, tableOK, ctx.Err(), headlessLog(log))
+		t.Fatalf("configure=%t feedback=%t main_device=%t table=%t: %v\n%s", configured, done, mainDevice, tableOK, ctx.Err(), h.Log())
 	}
 	noerr(t, surface.Commit())
 	// Drop all child objects while their parents are still alive.
@@ -152,22 +100,213 @@ func TestHeadlessNeferWL(t *testing.T) {
 	noerr(t, xs.Destroy())
 	noerr(t, surface.Destroy())
 	noerr(t, vp.Destroy())
-	noerr(t, dataManager.Release())
+	if dataVersion >= 4 {
+		noerr(t, dataManager.Release())
+	}
 	noerr(t, syncManager.Destroy())
 	noerr(t, dm.Destroy())
 	noerr(t, wm.Destroy())
 	noerr(t, d.Close())
 }
+
+// headlessInstance is one isolated NeferWL process with its own runtime,
+// config, data and state directories. Cleanup kills the whole process group
+// and reaps it. ctx expires at the test deadline or when the process exits, so
+// a blocking Dispatch on a connection made by connect always returns.
+type headlessInstance struct {
+	ctx     context.Context
+	socket  string
+	logf    *os.File
+	done    chan struct{} // closed after the process is reaped
+	waitErr error         // valid once done is closed
+}
+
+// startHeadless launches WLTURBO_HEADLESS or skips the test when it is unset.
+// It returns once the compositor socket exists, or fails with the process log
+// if the process exits early or the 18s test deadline expires.
+func startHeadless(t *testing.T) *headlessInstance {
+	t.Helper()
+	binary := os.Getenv("WLTURBO_HEADLESS")
+	if binary == "" {
+		t.Skip("set WLTURBO_HEADLESS to a NeferWL binary")
+	}
+	binary, e := filepath.Abs(binary)
+	noerr(t, e)
+	root := t.TempDir()
+	dirs := map[string]string{}
+	for _, name := range []string{"run", "config", "data", "state"} {
+		dirs[name] = filepath.Join(root, name)
+		noerr(t, os.Mkdir(dirs[name], 0700))
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 18*time.Second)
+	t.Cleanup(cancel)
+	logf, e := os.Create(filepath.Join(root, "neferwl.log"))
+	noerr(t, e)
+	t.Cleanup(func() { _ = logf.Close() })
+	h := &headlessInstance{logf: logf, done: make(chan struct{})}
+	// Watch the runtime directory before starting so the socket creation cannot be missed.
+	// Non-blocking makes os.File use the poller, so Close unblocks the reader goroutine.
+	ifd, e := unix.InotifyInit1(unix.IN_NONBLOCK | unix.IN_CLOEXEC)
+	noerr(t, e)
+	watch := os.NewFile(uintptr(ifd), "inotify")
+	t.Cleanup(func() { _ = watch.Close() })
+	_, e = unix.InotifyAddWatch(ifd, dirs["run"], unix.IN_CREATE|unix.IN_ATTRIB)
+	noerr(t, e)
+	cmd := exec.Command(binary, "--backend=headless", "--no-terminal", "--no-xwayland", "--size", "640x480", "--timeout", "20s")
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Env = append(cleanDisplayEnv(os.Environ()),
+		"XDG_RUNTIME_DIR="+dirs["run"], "XDG_CONFIG_HOME="+dirs["config"],
+		"XDG_DATA_HOME="+dirs["data"], "XDG_STATE_HOME="+dirs["state"])
+	cmd.Stdout = logf
+	cmd.Stderr = logf
+	noerr(t, cmd.Start())
+	// A failed startup must still terminate the process group and reap it.
+	t.Cleanup(func() {
+		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		<-h.done
+	})
+	// Process exit cancels ctx, which also unblocks any Dispatch (see connect).
+	ctx, stopCtx := context.WithCancel(ctx)
+	t.Cleanup(stopCtx)
+	h.ctx = ctx
+	go func() {
+		h.waitErr = cmd.Wait()
+		close(h.done)
+		stopCtx()
+	}()
+	events := make(chan struct{}, 1)
+	go func() {
+		buf := make([]byte, 4096)
+		for {
+			if _, e := watch.Read(buf); e != nil {
+				return
+			}
+			select {
+			case events <- struct{}{}:
+			default:
+			}
+		}
+	}()
+	find := func() string {
+		paths, _ := filepath.Glob(filepath.Join(dirs["run"], "wayland-*"))
+		for _, path := range paths {
+			if info, e := os.Stat(path); e == nil && info.Mode()&os.ModeSocket != 0 {
+				return path
+			}
+		}
+		return ""
+	}
+	for h.socket = find(); h.socket == ""; h.socket = find() {
+		select {
+		case <-events:
+		case <-h.done:
+			t.Fatalf("neferwl exited before serving: %v\n%s", h.waitErr, h.Log())
+		case <-ctx.Done():
+			t.Fatalf("headless socket timeout: %v\n%s", ctx.Err(), h.Log())
+		}
+	}
+	return h
+}
+
+// Log returns the tail of the compositor output.
+func (h *headlessInstance) Log() string { return headlessLog(h.logf) }
+
+// connect dials the compositor and completes the initial registry roundtrip.
+// The instance context closes the connection when the test deadline expires or
+// the compositor exits, so a blocking Dispatch returns instead of hanging.
+func (h *headlessInstance) connect(t *testing.T) *wlturbo.Display {
+	t.Helper()
+	var conn net.Conn
+	for {
+		var e error
+		conn, e = (&net.Dialer{Timeout: time.Second}).DialContext(h.ctx, "unix", h.socket)
+		if e == nil {
+			break
+		}
+		// The socket file appears at bind(); listen() follows immediately, so
+		// a refused dial is transient unless the compositor is gone.
+		if !errors.Is(e, syscall.ECONNREFUSED) {
+			t.Fatalf("dial: %v\n%s", e, h.Log())
+		}
+		select {
+		case <-h.done:
+			t.Fatalf("neferwl exited before accepting: %v\n%s", h.waitErr, h.Log())
+		case <-h.ctx.Done():
+			t.Fatalf("dial timeout: %v\n%s", h.ctx.Err(), h.Log())
+		case <-time.After(5 * time.Millisecond):
+		}
+	}
+	d, e := wlturbo.ConnectFromConn(conn)
+	if e != nil {
+		_ = conn.Close()
+		t.Fatal(e)
+	}
+	t.Cleanup(func() { _ = d.Close() })
+	stop := context.AfterFunc(h.ctx, func() { _ = d.Close() })
+	t.Cleanup(func() { stop() })
+	h.sync(t, d, "registry roundtrip")
+	return d
+}
+
+// binder returns a bind function that fails the test with the compositor log.
+func (h *headlessInstance) binder(t *testing.T, d *wlturbo.Display) func(string, uint32, wlturbo.Proxy) uint32 {
+	return func(iface string, supported uint32, proxy wlturbo.Proxy) uint32 {
+		t.Helper()
+		v, err := d.Registry().BindNegotiated(iface, supported, proxy)
+		if err != nil {
+			t.Fatalf("bind %s: %v\n%s", iface, err, h.Log())
+		}
+		t.Logf("%s negotiated=%d", iface, v)
+		return v
+	}
+}
+
+// sync completes a roundtrip, reporting compositor protocol errors with its log.
+func (h *headlessInstance) sync(t *testing.T, d *wlturbo.Display, what string) {
+	t.Helper()
+	if e := d.Roundtrip(); e != nil {
+		t.Fatalf("%s: %v (ctx %v)\n%s", what, e, h.ctx.Err(), h.Log())
+	}
+}
+
+// headlessEnvDrop lists the environment prefixes the child must not inherit:
+// anything that could attach it to, or make it act on, the caller's session,
+// plus NeferWL's own configuration. The test client's own environment is not
+// changed; only the child process is isolated.
+var headlessEnvDrop = []string{"DISPLAY=", "WAYLAND_DISPLAY=", "WAYLAND_SOCKET=", "NOTIFY_SOCKET=", "DBUS_SESSION_BUS_ADDRESS=",
+	"XDG_RUNTIME_DIR=", "XDG_CONFIG_HOME=", "XDG_DATA_HOME=", "XDG_STATE_HOME=", "XDG_SESSION_", "XDG_VTNR=", "XDG_SEAT=",
+	"XDG_CURRENT_DESKTOP=", "NIRI_SOCKET=", "SWAYSOCK=", "HYPRLAND_INSTANCE_SIGNATURE=", "NEFERWL_"}
+
 func cleanDisplayEnv(in []string) []string {
 	out := make([]string, 0, len(in))
+next:
 	for _, e := range in {
-		if strings.HasPrefix(e, "DISPLAY=") || strings.HasPrefix(e, "WAYLAND_DISPLAY=") || strings.HasPrefix(e, "XDG_RUNTIME_DIR=") || strings.HasPrefix(e, "XDG_CONFIG_HOME=") {
-			continue
+		for _, p := range headlessEnvDrop {
+			if strings.HasPrefix(e, p) {
+				continue next
+			}
 		}
 		out = append(out, e)
 	}
 	return out
 }
+
+func TestCleanDisplayEnv(t *testing.T) {
+	keep := []string{"PATH=/bin", "HOME=/h", "DISPLAYS=x", "XDG_DATA_DIRS=/d", "MY_NEFERWL_X=1"}
+	in := append([]string(nil), keep...)
+	for _, p := range headlessEnvDrop {
+		e := p + "placeholder"
+		if !strings.HasSuffix(p, "=") {
+			e += "=1" // a prefix such as XDG_SESSION_ names a family of variables
+		}
+		in = append(in, e)
+	}
+	got := cleanDisplayEnv(in)
+	if strings.Join(got, "\n") != strings.Join(keep, "\n") {
+		t.Fatalf("cleanDisplayEnv = %q, want %q", got, keep)
+	}
+}
+
 func headlessLog(f *os.File) string {
 	b, e := os.ReadFile(f.Name())
 	if e != nil {

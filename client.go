@@ -230,12 +230,14 @@ func (d *Display) SendRequest(objectID uint32, opcode uint16, args ...interface{
 
 // SendRequestWithFDs sends a request with file descriptors
 func (d *Display) SendRequestWithFDs(objectID uint32, opcode uint16, fds []int, args ...interface{}) error {
-	return d.sendRequest(objectID, opcode, fds, nil, args)
+	return d.sendRequest(objectID, opcode, fds, nil, args, nil)
 }
 
 // sendRequest marshals a request, then runs guard and writes the message
 // under the send lock. Guard failures and marshaling errors write nothing.
-func (d *Display) sendRequest(objectID uint32, opcode uint16, fds []int, guard func() error, args []interface{}) error {
+// The body is args (boxed, legacy path) followed by vals (typed path); a
+// caller uses one of the two.
+func (d *Display) sendRequest(objectID uint32, opcode uint16, fds []int, guard func() error, args []interface{}, vals []Arg) error {
 	// Get buffer from pool
 	buf := bufferPool.Get().(*bytes.Buffer)
 	defer func() {
@@ -250,6 +252,11 @@ func (d *Display) sendRequest(objectID uint32, opcode uint16, fds []int, guard f
 	// Marshal arguments
 	for _, arg := range args {
 		if err := d.marshalArg(buf, arg); err != nil {
+			return fmt.Errorf("failed to marshal argument: %w", err)
+		}
+	}
+	for i := range vals {
+		if err := marshalValue(buf, &vals[i]); err != nil {
 			return fmt.Errorf("failed to marshal argument: %w", err)
 		}
 	}
@@ -279,6 +286,61 @@ func putUint32(buf *bytes.Buffer, v uint32) {
 	_, _ = buf.Write(w[:])
 }
 
+// putString appends a wire string: length including the terminating NUL, the
+// bytes, the NUL, and padding to a 32-bit boundary.
+func putString(buf *bytes.Buffer, v string) error {
+	strlen := len(v) + 1
+	if strlen > 0xffff-HeaderSize {
+		return fmt.Errorf("string too long: %d bytes", strlen)
+	}
+	putUint32(buf, uint32(strlen)) // Safe: checked above
+	_, _ = buf.WriteString(v)
+	_ = buf.WriteByte(0)
+	for i := (4 - (strlen % 4)) % 4; i > 0; i-- {
+		_ = buf.WriteByte(0)
+	}
+	return nil
+}
+
+// putArray appends a wire array: length, the bytes and padding to a 32-bit
+// boundary.
+func putArray(buf *bytes.Buffer, v []byte) error {
+	arrlen := len(v)
+	if arrlen > 0xffff-HeaderSize {
+		return fmt.Errorf("array too long: %d bytes", arrlen)
+	}
+	putUint32(buf, uint32(arrlen))
+	_, _ = buf.Write(v)
+	for i := (4 - (arrlen % 4)) % 4; i > 0; i-- {
+		_ = buf.WriteByte(0)
+	}
+	return nil
+}
+
+// marshalValue marshals one typed argument. It shares the string and array
+// encoders with marshalArg, so both paths produce identical bytes.
+func marshalValue(buf *bytes.Buffer, a *Arg) error {
+	switch a.kind {
+	case argWord:
+		putUint32(buf, a.word)
+	case argString:
+		return putString(buf, a.str)
+	case argArray:
+		return putArray(buf, a.arr)
+	case argObject:
+		if a.obj != nil {
+			putUint32(buf, a.obj.ID())
+		} else {
+			putUint32(buf, 0)
+		}
+	case argFD:
+		// Carried by SCM_RIGHTS only; no body word.
+	default:
+		return errors.New("unsupported argument: zero or invalid Arg")
+	}
+	return nil
+}
+
 // marshalArg marshals a single argument
 func (d *Display) marshalArg(buf *bytes.Buffer, arg interface{}) error {
 	switch v := arg.(type) {
@@ -289,32 +351,9 @@ func (d *Display) marshalArg(buf *bytes.Buffer, arg interface{}) error {
 	case Fixed:
 		putUint32(buf, uint32(v))
 	case string:
-		// String format: length (including null) + string + null + padding
-		strlen := len(v) + 1
-		if strlen > 0xffff-HeaderSize {
-			return fmt.Errorf("string too long: %d bytes", strlen)
-		}
-		putUint32(buf, uint32(strlen)) // Safe: checked above
-		_, _ = buf.WriteString(v)
-		_ = buf.WriteByte(0)
-		// Pad to 32-bit boundary
-		padding := (4 - (strlen % 4)) % 4
-		for i := 0; i < padding; i++ {
-			_ = buf.WriteByte(0)
-		}
+		return putString(buf, v)
 	case []byte:
-		// Array format: length + data + padding
-		arrlen := len(v)
-		if arrlen > 0xffff-HeaderSize {
-			return fmt.Errorf("array too long: %d bytes", arrlen)
-		}
-		putUint32(buf, uint32(arrlen))
-		_, _ = buf.Write(v)
-		// Pad to 32-bit boundary
-		padding := (4 - (arrlen % 4)) % 4
-		for i := 0; i < padding; i++ {
-			_ = buf.WriteByte(0)
-		}
+		return putArray(buf, v)
 	case Object:
 		if v != nil {
 			putUint32(buf, v.ID())

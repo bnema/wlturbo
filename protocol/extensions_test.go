@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -111,6 +112,224 @@ func bind(t *testing.T, d *wlturbo.Display, p *net.UnixConn, name uint32, iface 
 		t.Fatalf("bad bind %s announced=%d supported=%d negotiated=%d wire=%x", iface, announced, supported, v, b)
 	}
 }
+
+// serverID is the first server-allocated object ID on the wire.
+const serverID = 0xff000000
+
+// wordBytes encodes 32-bit words as a message body in native byte order.
+func wordBytes(v ...uint32) []byte { return msg(0, 0, v...)[8:] }
+
+// cat concatenates message body fragments.
+func cat(parts ...[]byte) []byte {
+	var out []byte
+	for _, p := range parts {
+		out = append(out, p...)
+	}
+	return out
+}
+
+// decodeWords splits a message body into 32-bit words.
+func decodeWords(b []byte) []uint32 {
+	w := make([]uint32, len(b)/4)
+	for i := range w {
+		w[i] = binary.NativeEndian.Uint32(b[i*4:])
+	}
+	return w
+}
+
+// wantWords requires a request body to be exactly the given 32-bit words.
+func wantWords(t *testing.T, what string, b []byte, want ...uint32) {
+	t.Helper()
+	if got := decodeWords(b); !slices.Equal(got, want) { // nil and empty are equal
+		t.Fatalf("%s wire = %v, want %v", what, got, want)
+	}
+}
+
+// wantRequestWords reads one request and requires its exact object, opcode and
+// 32-bit word arguments.
+func wantRequestWords(t *testing.T, p *net.UnixConn, id uint32, op uint16, want ...uint32) {
+	t.Helper()
+	gid, gop, body := request(t, p)
+	if gid != id || gop != op || len(body) != 4*len(want) {
+		t.Fatalf("request object=%d op=%d body=%x, want object=%d op=%d words=%v", gid, gop, body, id, op, want)
+	}
+	wantWords(t, "request", body, want...)
+}
+
+// requireFDClosed fails if fd is still open in this process: the binding must
+// close its copy of a descriptor once the kernel took it with a request. Call
+// it before reading the request, because the received duplicate may reuse the
+// same descriptor number.
+func requireFDClosed(t *testing.T, fd int) {
+	t.Helper()
+	if _, e := unix.FcntlInt(uintptr(fd), unix.F_GETFD, 0); e == nil {
+		t.Fatalf("descriptor %d sent by the client was not closed", fd)
+	}
+}
+
+// requireNoWrite fails unless the client wrote nothing within a short deadline.
+func requireNoWrite(t *testing.T, p *net.UnixConn) {
+	t.Helper()
+	p.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
+	var b [64]byte
+	n, e := p.Read(b[:])
+	if e == nil {
+		t.Fatalf("unexpected bytes on the wire: %x", b[:n])
+	}
+	if !errors.Is(e, os.ErrDeadlineExceeded) {
+		t.Fatal(e)
+	}
+}
+
+// recvRequestFDs reads one client message and the descriptors that came with
+// it. Every received descriptor is closed before a fatal failure, so a failed
+// check cannot leak them; on success the caller owns fds.
+func recvRequestFDs(t *testing.T, p *net.UnixConn) (id uint32, op uint16, body []byte, fds []int) {
+	t.Helper()
+	fail := func(format string, args ...any) {
+		t.Helper()
+		for _, fd := range fds {
+			unix.Close(fd)
+		}
+		t.Fatalf(format, args...)
+	}
+	p.SetReadDeadline(time.Now().Add(2 * time.Second))
+	b := make([]byte, 4096)
+	oob := make([]byte, 256)
+	n, oobn, _, _, e := p.ReadMsgUnix(b, oob)
+	if oobn > 0 {
+		msgs, pe := unix.ParseSocketControlMessage(oob[:oobn])
+		for i := range msgs {
+			r, re := unix.ParseUnixRights(&msgs[i])
+			fds = append(fds, r...)
+			if re != nil && pe == nil {
+				pe = re
+			}
+		}
+		if pe != nil {
+			fail("control message: %v", pe)
+		}
+	}
+	if e != nil {
+		fail("read request: %v", e)
+	}
+	if n < 8 {
+		fail("short request (%d bytes)", n)
+	}
+	if size := int(binary.NativeEndian.Uint32(b[4:]) >> 16); size != n {
+		fail("header size %d != %d bytes read", size, n)
+	}
+	return binary.NativeEndian.Uint32(b), uint16(binary.NativeEndian.Uint32(b[4:])), b[8:n], fds
+}
+
+// requestWithFD reads the next request, requires its object and opcode, and
+// requires exactly one descriptor, which the caller then owns.
+func requestWithFD(t *testing.T, p *net.UnixConn, id uint32, op uint16) ([]byte, int) {
+	t.Helper()
+	gid, gop, body, fds := recvRequestFDs(t, p)
+	if gid != id || gop != op || len(fds) != 1 {
+		for _, fd := range fds {
+			unix.Close(fd)
+		}
+		t.Fatalf("request object=%d op=%d fds=%d, want object=%d op=%d with 1 descriptor (body %x)", gid, gop, len(fds), id, op, body)
+	}
+	return body, fds[0]
+}
+
+// register gives a proxy a client-allocated ID and registers it with d.
+func register(d *wlturbo.Display, o wlturbo.Proxy) {
+	o.SetID(d.AllocateID())
+	d.Context().Register(o)
+}
+
+// wireEnv is one client connection against a fake compositor on a socketpair.
+type wireEnv struct {
+	t *testing.T
+	d *wlturbo.Display
+	p *net.UnixConn
+}
+
+func newWireEnv(t *testing.T) *wireEnv {
+	t.Helper()
+	c, p := pair(t)
+	d, e := wlturbo.ConnectFromConn(c)
+	noerr(t, e)
+	t.Cleanup(func() { d.Close() })
+	request(t, p) // wl_display.get_registry
+	return &wireEnv{t: t, d: d, p: p}
+}
+
+func (s *wireEnv) dispatch() { s.t.Helper(); noerr(s.t, s.d.Dispatch()) }
+
+// bind advertises and binds a global; see the package-level bind.
+func (s *wireEnv) bind(name uint32, iface string, announced, supported uint32, proxy wlturbo.Proxy) {
+	s.t.Helper()
+	bind(s.t, s.d, s.p, name, iface, announced, supported, proxy)
+}
+
+// event sends one server event and dispatches it on the client.
+func (s *wireEnv) event(id uint32, op uint16, body ...byte) {
+	s.t.Helper()
+	s.eventFD(id, op, body)
+}
+
+// eventFD is event for an event that carries descriptors (SCM_RIGHTS).
+func (s *wireEnv) eventFD(id uint32, op uint16, body []byte, fd ...int) {
+	s.t.Helper()
+	send(s.t, s.p, payload(id, op, body...), fd...)
+	s.dispatch()
+}
+
+// req reads the next client request and checks its object and opcode.
+func (s *wireEnv) req(id uint32, op uint16) []byte {
+	s.t.Helper()
+	gid, gop, b := request(s.t, s.p)
+	if gid != id || gop != op {
+		s.t.Fatalf("request object=%d op=%d, want object=%d op=%d (body %x)", gid, gop, id, op, b)
+	}
+	return b
+}
+
+// reqFD is req for a request that carries exactly one descriptor.
+func (s *wireEnv) reqFD(id uint32, op uint16) ([]byte, int) {
+	s.t.Helper()
+	return requestWithFD(s.t, s.p, id, op)
+}
+
+// noRequest fails if the client wrote anything.
+func (s *wireEnv) noRequest() { s.t.Helper(); requireNoWrite(s.t, s.p) }
+
+func (s *wireEnv) surface() *core.Surface {
+	o := core.NewSurface(s.d.Context())
+	register(s.d, o)
+	return o
+}
+func (s *wireEnv) seat() *core.Seat {
+	o := core.NewSeat(s.d.Context())
+	register(s.d, o)
+	return o
+}
+func (s *wireEnv) output() *core.Output {
+	o := core.NewOutput(s.d.Context())
+	register(s.d, o)
+	return o
+}
+func (s *wireEnv) pointer() *core.Pointer {
+	o := core.NewPointer(s.d.Context())
+	register(s.d, o)
+	return o
+}
+func (s *wireEnv) region() *core.Region {
+	o := core.NewRegion(s.d.Context())
+	register(s.d, o)
+	return o
+}
+func (s *wireEnv) buffer() *core.Buffer {
+	o := core.NewBuffer(s.d.Context())
+	register(s.d, o)
+	return o
+}
+
 func TestExtensionsOverSocketpair(t *testing.T) {
 	c, p := pair(t)
 	d, e := wlturbo.ConnectFromConn(c)

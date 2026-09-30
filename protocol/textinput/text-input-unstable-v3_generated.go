@@ -2,6 +2,33 @@
 // Protocol: text_input_unstable_v3
 // Source: text-input-unstable-v3.xml
 
+// Upstream protocol copyright and license:
+// Copyright © 2012, 2013 Intel Corporation
+// Copyright © 2015, 2016 Jan Arne Petersen
+// Copyright © 2017, 2018 Red Hat, Inc.
+// Copyright © 2018       Purism SPC
+//
+// Permission to use, copy, modify, distribute, and sell this
+// software and its documentation for any purpose is hereby granted
+// without fee, provided that the above copyright notice appear in
+// all copies and that both that copyright notice and this permission
+// notice appear in supporting documentation, and that the name of
+// the copyright holders not be used in advertising or publicity
+// pertaining to distribution of the software without specific,
+// written prior permission.  The copyright holders make no
+// representations about the suitability of this software for any
+// purpose.  It is provided "as is" without express or implied
+// warranty.
+//
+// THE COPYRIGHT HOLDERS DISCLAIM ALL WARRANTIES WITH REGARD TO THIS
+// SOFTWARE, INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND
+// FITNESS, IN NO EVENT SHALL THE COPYRIGHT HOLDERS BE LIABLE FOR ANY
+// SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+// WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN
+// AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+// ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
+// THIS SOFTWARE.
+
 package textinput
 
 import (
@@ -161,7 +188,7 @@ func NewTextInputV3(ctx *wl.Context) *TextInputV3 {
 
 // Destroy the wp_text_input object. Also disables all surfaces enabled through this wp_text_input object.
 func (o *TextInputV3) Destroy() error {
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 0, Name: "zwp_text_input_v3.destroy", Destructor: true}); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 0, Name: "zwp_text_input_v3.destroy", Destructor: true}); err != nil {
 		return err
 	}
 	return nil
@@ -169,7 +196,7 @@ func (o *TextInputV3) Destroy() error {
 
 // Requests text input on the surface previously obtained from the enter event. This request must be issued every time the focused text input changes to a new one, including within the current surface. Use zwp_text_input_v3.disable when there is no longer any input focus on the current surface. Clients must not enable more than one text input on the single seat and should disable the current text input before enabling the new one. Requests to enable a text input when another text input is enabled on the same seat must be ignored by compositor. This request resets all state associated with previous enable, disable, set_surrounding_text, set_text_change_cause, set_content_type, and set_cursor_rectangle requests, as well as the state associated with preedit_string, commit_string, and delete_surrounding_text events. The set_surrounding_text, set_content_type and set_cursor_rectangle requests must follow if the text input supports the necessary functionality. State set with this request is double-buffered. It will get applied on the next zwp_text_input_v3.commit request, and stay valid until the next committed enable or disable request. The changes must be applied by the compositor after issuing a zwp_text_input_v3.commit request.
 func (o *TextInputV3) Enable() error {
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 1, Name: "zwp_text_input_v3.enable"}); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 1, Name: "zwp_text_input_v3.enable"}); err != nil {
 		return err
 	}
 	return nil
@@ -177,7 +204,7 @@ func (o *TextInputV3) Enable() error {
 
 // Explicitly disable text input on the current surface (typically when there is no focus on any text entry inside the surface). State set with this request is double-buffered. It will get applied on the next zwp_text_input_v3.commit request.
 func (o *TextInputV3) Disable() error {
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 2, Name: "zwp_text_input_v3.disable"}); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 2, Name: "zwp_text_input_v3.disable"}); err != nil {
 		return err
 	}
 	return nil
@@ -185,7 +212,7 @@ func (o *TextInputV3) Disable() error {
 
 // Sets the surrounding plain text around the input, excluding the preedit text. The client should notify the compositor of any changes in any of the values carried with this request, including changes caused by handling incoming text-input events as well as changes caused by other mechanisms like keyboard typing. If the client is unaware of the text around the cursor, it should not issue this request, to signify lack of support to the compositor. Text is UTF-8 encoded, and should include the cursor position, the complete selection and additional characters before and after them. There is a maximum length of wayland messages, so text can not be longer than 4000 bytes. Cursor is the byte offset of the cursor within text buffer. Anchor is the byte offset of the selection anchor within text buffer. If there is no selected text, anchor is the same as cursor. If any preedit text is present, it is replaced with a cursor for the purpose of this event. Values set with this request are double-buffered. They will get applied on the next zwp_text_input_v3.commit request, and stay valid until the next committed enable or disable request. The initial state for affected fields is empty, meaning that the text input does not support sending surrounding text. If the empty values get applied, subsequent attempts to change them may have no effect.
 func (o *TextInputV3) SetSurroundingText(text string, cursor int32, anchor int32) error {
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 3, Name: "zwp_text_input_v3.set_surrounding_text"}, text, cursor, anchor); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 3, Name: "zwp_text_input_v3.set_surrounding_text"}, wl.ArgString(text), wl.ArgInt(cursor), wl.ArgInt(anchor)); err != nil {
 		return err
 	}
 	return nil
@@ -193,7 +220,7 @@ func (o *TextInputV3) SetSurroundingText(text string, cursor int32, anchor int32
 
 // Tells the compositor why the text surrounding the cursor changed. Whenever the client detects an external change in text, cursor, or anchor posision, it must issue this request to the compositor. This request is intended to give the input method a chance to update the preedit text in an appropriate way, e.g. by removing it when the user starts typing with a keyboard. cause describes the source of the change. The value set with this request is double-buffered. It must be applied and reset to initial at the next zwp_text_input_v3.commit request. The initial value of cause is input_method.
 func (o *TextInputV3) SetTextChangeCause(cause uint32) error {
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 4, Name: "zwp_text_input_v3.set_text_change_cause"}, cause); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 4, Name: "zwp_text_input_v3.set_text_change_cause"}, wl.ArgUint(cause)); err != nil {
 		return err
 	}
 	return nil
@@ -201,7 +228,7 @@ func (o *TextInputV3) SetTextChangeCause(cause uint32) error {
 
 // Sets the content purpose and content hint. While the purpose is the basic purpose of an input field, the hint flags allow to modify some of the behavior. Values set with this request are double-buffered. They will get applied on the next zwp_text_input_v3.commit request. Subsequent attempts to update them may have no effect. The values remain valid until the next committed enable or disable request. The initial value for hint is none, and the initial value for purpose is normal.
 func (o *TextInputV3) SetContentType(hint uint32, purpose uint32) error {
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 5, Name: "zwp_text_input_v3.set_content_type"}, hint, purpose); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 5, Name: "zwp_text_input_v3.set_content_type"}, wl.ArgUint(hint), wl.ArgUint(purpose)); err != nil {
 		return err
 	}
 	return nil
@@ -209,7 +236,7 @@ func (o *TextInputV3) SetContentType(hint uint32, purpose uint32) error {
 
 // Marks an area around the cursor as a x, y, width, height rectangle in surface local coordinates. Allows the compositor to put a window with word suggestions near the cursor, without obstructing the text being input. If the client is unaware of the position of edited text, it should not issue this request, to signify lack of support to the compositor. Values set with this request are double-buffered. They will get applied on the next zwp_text_input_v3.commit request, and stay valid until the next committed enable or disable request. The initial values describing a cursor rectangle are empty. That means the text input does not support describing the cursor area. If the empty values get applied, subsequent attempts to change them may have no effect. As of version 2, the zwp_text_input_v3.commit request does not apply values sent with this request. Instead, it stores them in a separate "committed" area. The committed values, if still valid, get applied on the next wl_surface.commit request on the surface with text-input focus. Both committed and applied values get invalidated on: - the next committed enable or disable request, or - a change of the focused surface of the text-input (leave or enter events). This double stage application allows the compositor to position the input method popup in the same frame as the contents of the text on the surface are updated.
 func (o *TextInputV3) SetCursorRectangle(x int32, y int32, width int32, height int32) error {
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 6, Name: "zwp_text_input_v3.set_cursor_rectangle"}, x, y, width, height); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 6, Name: "zwp_text_input_v3.set_cursor_rectangle"}, wl.ArgInt(x), wl.ArgInt(y), wl.ArgInt(width), wl.ArgInt(height)); err != nil {
 		return err
 	}
 	return nil
@@ -217,7 +244,7 @@ func (o *TextInputV3) SetCursorRectangle(x int32, y int32, width int32, height i
 
 // Atomically applies state changes recently sent to the compositor. The commit request establishes and updates the state of the client, and must be issued after any changes to apply them. Text input state (enabled status, content purpose, content hint, surrounding text and change cause, cursor rectangle) is conceptually double-buffered within the context of a text input, i.e. between a committed enable request and the following committed enable or disable request. Protocol requests modify the pending state, as opposed to the current state in use by the input method. A commit request atomically applies all pending state, replacing the current state. After commit, the new pending state is as documented for each related request. Requests are applied in the order of arrival. Neither current nor pending state are modified unless noted otherwise. The compositor must count the number of commit requests coming from each zwp_text_input_v3 object and use the count as the serial in done events.
 func (o *TextInputV3) Commit() error {
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 7, Name: "zwp_text_input_v3.commit"}); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 7, Name: "zwp_text_input_v3.commit"}); err != nil {
 		return err
 	}
 	return nil
@@ -225,7 +252,7 @@ func (o *TextInputV3) Commit() error {
 
 // Set the actions available for this text input. Values set with this request are double-buffered. They will get applied on the next zwp_text_input_v3.commit request. If the available_actions array contains the none action, or contains the same action multiple times, the compositor must raise the invalid_action protocol error. Initially, no actions are available.
 func (o *TextInputV3) SetAvailableActions(availableActions []byte) error {
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 8, Name: "zwp_text_input_v3.set_available_actions", Since: 2}, availableActions); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 8, Name: "zwp_text_input_v3.set_available_actions", Since: 2}, wl.ArgArray(availableActions)); err != nil {
 		return err
 	}
 	return nil
@@ -233,7 +260,7 @@ func (o *TextInputV3) SetAvailableActions(availableActions []byte) error {
 
 // Requests an input panel to be shown (e.g. a on-screen keyboard). This request only hints the desired interaction pattern from the client side, and its effect may be ignored by compositors given other environmental factors. Repeated calls will be ignored.
 func (o *TextInputV3) ShowInputPanel() error {
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 9, Name: "zwp_text_input_v3.show_input_panel", Since: 2}); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 9, Name: "zwp_text_input_v3.show_input_panel", Since: 2}); err != nil {
 		return err
 	}
 	return nil
@@ -241,7 +268,7 @@ func (o *TextInputV3) ShowInputPanel() error {
 
 // Requests an input panel to be hidden. This request only hints the desired interaction pattern from the client side, and its effect may be ignored by compositors given other environmental factors. Repeated calls will be ignored.
 func (o *TextInputV3) HideInputPanel() error {
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 10, Name: "zwp_text_input_v3.hide_input_panel", Since: 2}); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 10, Name: "zwp_text_input_v3.hide_input_panel", Since: 2}); err != nil {
 		return err
 	}
 	return nil
@@ -565,7 +592,7 @@ func NewTextInputManagerV3(ctx *wl.Context) *TextInputManagerV3 {
 
 // Destroy the wp_text_input_manager object.
 func (o *TextInputManagerV3) Destroy() error {
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 0, Name: "zwp_text_input_manager_v3.destroy", Destructor: true}); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 0, Name: "zwp_text_input_manager_v3.destroy", Destructor: true}); err != nil {
 		return err
 	}
 	return nil
@@ -579,7 +606,7 @@ func (o *TextInputManagerV3) GetTextInput(seat *cross_wl_seat.Seat) (*TextInputV
 	}
 	child := &TextInputV3{}
 	child.SetContext(o.Context())
-	if err := o.Context().Request(wl.Request{Proxy: o, Opcode: 1, Name: "zwp_text_input_manager_v3.get_text_input", Child: child}, child, arg1); err != nil {
+	if err := o.Context().RequestArgs(wl.Request{Proxy: o, Opcode: 1, Name: "zwp_text_input_manager_v3.get_text_input", Child: child}, wl.ArgObject(child), wl.ArgObject(arg1)); err != nil {
 		return nil, err
 	}
 	return child, nil
