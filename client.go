@@ -1,6 +1,6 @@
 // Package wlturbo is a Wayland client transport for Go: connection, framing,
-// descriptor passing, object lifecycle and the bootstrap registry. Protocol
-// bindings are generated into the protocol/ packages.
+// descriptor passing, object lifecycle and the bootstrap registry. Generated
+// protocol bindings live in github.com/bnema/go-wayland-bindings (client/).
 package wlturbo
 
 import (
