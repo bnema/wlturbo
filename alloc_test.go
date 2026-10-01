@@ -39,4 +39,19 @@ func TestNumericPathsDoNotAllocate(t *testing.T) {
 			t.Fatalf("proxy received %d, want 42", p.value)
 		}
 	})
+
+	// A frame callback registers and retires one object per frame under a
+	// recycled ID; the object tables must reuse their storage.
+	t.Run("RegisterRecycledID", func(t *testing.T) {
+		d := newDisplay(&chunkConn{})
+		p := &BaseProxy{id: d.AllocateID(), context: d.context}
+		cycle := func() {
+			d.context.Register(p)
+			d.context.Unregister(p)
+		}
+		cycle()
+		if n := testing.AllocsPerRun(100, cycle); n != 0 {
+			t.Fatalf("register/unregister allocated %v times per cycle, want 0", n)
+		}
+	})
 }

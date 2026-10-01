@@ -46,7 +46,7 @@ type Object interface {
 type Display struct {
 	conn       net.Conn
 	unix       *net.UnixConn // set when conn is a Unix socket, nil otherwise
-	objects    sync.Map      // map[uint32]Object
+	objects    objectTable[Object]
 	nextID     uint32
 	idMu       sync.Mutex
 	freeIDs    []uint32
@@ -608,7 +608,7 @@ func (d *Display) prepareFrame(f receivedFrame) (Object, *Event, error) {
 	}
 	// For a zombie the descriptors were still consumed above so the stream
 	// stays aligned; dispatchFrame closes them without running any handler.
-	return obj.(Object), ev, nil
+	return obj, ev, nil
 }
 
 type signatureKey struct {
