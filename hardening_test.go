@@ -125,6 +125,48 @@ func TestDestroyedObjectEventsAreDroppedUntilDeleteID(t *testing.T) {
 	}
 }
 
+// An abandoned object (a wl_callback the compositor destroys itself) sends no
+// request: a late event is dropped and the compositor's delete_id retires the
+// ID, both without a protocol error.
+func TestAbandonedObjectAcceptsLateEventAndServerDeleteID(t *testing.T) {
+	client, peer := unixSocketPair(t)
+	d := newDisplay(client)
+	p := &fdSigProxy{BaseProxy: BaseProxy{id: d.AllocateID(), context: d.context}}
+	d.context.Register(p)
+	if err := d.context.Abandon(p); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.context.Abandon(p); err == nil {
+		t.Fatal("second Abandon succeeded")
+	}
+	if err := d.context.SendRequest(p, 0); err == nil {
+		t.Fatal("request on abandoned proxy succeeded")
+	}
+	if err := peer.SetReadDeadline(time.Now().Add(50 * time.Millisecond)); err != nil {
+		t.Fatal(err)
+	}
+	if n, _ := peer.Read(make([]byte, 64)); n != 0 {
+		t.Fatalf("Abandon sent %d bytes", n)
+	}
+
+	sendMessageWithFDs(t, peer, message(p.ID(), 0, []byte{1, 0, 0, 0}), nil)
+	if err := d.Dispatch(); err != nil {
+		t.Fatalf("late event for abandoned object: %v", err)
+	}
+	if p.calls != 0 {
+		t.Fatalf("abandoned proxy received %d events", p.calls)
+	}
+	body := make([]byte, 4)
+	binary.LittleEndian.PutUint32(body, p.ID())
+	sendMessageWithFDs(t, peer, message(displayObjectID, 1, body), nil)
+	if err := d.Dispatch(); err != nil {
+		t.Fatalf("delete_id for abandoned object: %v", err)
+	}
+	if got := d.AllocateID(); got != p.ID() {
+		t.Fatalf("ID %d not reused after delete_id (got %d)", p.ID(), got)
+	}
+}
+
 // A plain Go int is ambiguous (value or descriptor) and must be rejected
 // instead of being written as zero.
 func TestMarshalRejectsPlainInt(t *testing.T) {
