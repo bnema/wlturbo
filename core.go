@@ -13,7 +13,7 @@ import (
 // Context provides a compatibility layer for wl.Context
 type Context struct {
 	display *Display
-	proxies sync.Map // map[uint32]Proxy
+	proxies objectTable[Proxy]
 	closed  atomic.Bool
 }
 
