@@ -212,6 +212,15 @@ func (c *Context) claimDestroy(proxy Proxy) error {
 	return nil
 }
 
+// Abandon stops delivering events to proxy without sending any request. Use
+// it for objects the compositor destroys itself, such as a wl_callback whose
+// done event may still be in flight: the object stays a zombie, so a late
+// event is discarded and the compositor's wl_display.delete_id retires the ID.
+// It returns an error when proxy is not registered on this context.
+func (c *Context) Abandon(proxy Proxy) error {
+	return c.claimDestroy(proxy)
+}
+
 // zombie stands in for an object the client destroyed until the compositor
 // acknowledges the destruction with wl_display.delete_id. Events that were in
 // flight for it are discarded; their descriptors are closed.
