@@ -1,4 +1,8 @@
-// Package wl provides type aliases for easy migration from neurlang/wayland
+// Package wl is the stable alias surface over package wlturbo. It is imported
+// by the bindings generated in github.com/bnema/go-wayland-bindings, so its
+// names are part of that contract. It also keeps source compatibility with
+// neurlang/wayland, so code written against that package can migrate by
+// changing its import path.
 package wl
 
 import (
