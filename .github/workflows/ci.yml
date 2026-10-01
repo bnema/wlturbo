@@ -22,3 +22,32 @@ jobs:
         run: go run honnef.co/go/tools/cmd/staticcheck@latest ./...
       - name: Test (race)
         run: go test -race -count=1 ./...
+
+  # Downstream: the generated bindings must still build and pass against this
+  # revision of wlturbo.
+  bindings:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: wlturbo
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: bnema/go-wayland-bindings
+          ref: main
+          path: bindings
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: bindings/go.mod
+      - name: Build and test bindings against this wlturbo
+        working-directory: bindings
+        run: |
+          go mod edit -replace github.com/bnema/wlturbo=../wlturbo
+          go mod tidy
+          CGO_ENABLED=0 go build ./...
+          go vet ./client/...
+          CGO_ENABLED=0 go test ./client/...
