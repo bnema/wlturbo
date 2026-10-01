@@ -3,6 +3,7 @@
 package wlturbo
 
 import (
+	"bytes"
 	"encoding/binary"
 	"errors"
 	"io"
@@ -82,6 +83,19 @@ func TestBindNegotiated(t *testing.T) {
 		t.Fatalf("supported zero: %d %v", v, err)
 	}
 
+	// A global announced at version 0 is unusable.
+	sendMessageWithFDs(t, peer, globalEvent(reg.ID(), 29, iface, 0), nil)
+	if err := d.Dispatch(); err != nil {
+		t.Fatal(err)
+	}
+	if v, err := reg.BindNegotiated(iface, 6, &BaseProxy{}); v != 0 || !errors.Is(err, ErrGlobalNotFound) {
+		t.Fatalf("announced version 0: %d %v", v, err)
+	}
+	sendMessageWithFDs(t, peer, message(reg.ID(), 1, u32Body(29)), nil)
+	if err := d.Dispatch(); err != nil {
+		t.Fatal(err)
+	}
+
 	for i, announced := range []uint32{2, 9} {
 		name := uint32(30 + i)
 		sendMessageWithFDs(t, peer, globalEvent(reg.ID(), name, iface, announced), nil)
@@ -101,11 +115,15 @@ func TestBindNegotiated(t *testing.T) {
 			t.Fatalf("announced=%d negotiated=%d proxy version=%d, want %d", announced, negotiated, proxy.Version(), want)
 		}
 		obj, op, body := readRequest(t, peer)
-		// bind: name, string interface, version, new_id.
-		if obj != reg.ID() || op != 0 ||
+		// bind: name, string (length incl. NUL, NUL, padding), version, new_id.
+		padded := (len(iface) + 1 + 3) &^ 3
+		if obj != reg.ID() || op != 0 || len(body) != 4+4+padded+4+4 ||
 			binary.LittleEndian.Uint32(body) != name ||
-			binary.LittleEndian.Uint32(body[len(body)-8:]) != want ||
-			binary.LittleEndian.Uint32(body[len(body)-4:]) != proxy.ID() {
+			binary.LittleEndian.Uint32(body[4:]) != uint32(len(iface)+1) ||
+			string(body[8:8+len(iface)]) != iface ||
+			!bytes.Equal(body[8+len(iface):8+padded], make([]byte, padded-len(iface))) ||
+			binary.LittleEndian.Uint32(body[8+padded:]) != want ||
+			binary.LittleEndian.Uint32(body[8+padded+4:]) != proxy.ID() {
 			t.Fatalf("bind object=%d opcode=%d body=%x", obj, op, body)
 		}
 		// Remove the global so the next iteration is the only match.
