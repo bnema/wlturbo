@@ -9,13 +9,12 @@ WLTurbo is the transport layer: connection, wire framing, descriptor passing, ob
 ## Where it fits
 
 ```
-Application
-└─ neferclient             connection helpers, surfaces, seat, DMA-BUF presentation
-   └─ go-wayland-bindings  one package per protocol
-      └─ wlturbo           transport and objects  (this module)
+Application or toolkit    windows, input, rendering, policy
+└─ Protocol bindings      generated code, one package per protocol
+   └─ WLTurbo             transport and objects  (this module)
 ```
 
-Use WLTurbo directly to speak raw Wayland or to write bindings. For an application, start with [neferclient](https://github.com/bnema/neferclient).
+Use WLTurbo directly to speak raw Wayland or to write your own bindings or toolkit. Ready-made bindings are available in [go-wayland-bindings](https://github.com/bnema/go-wayland-bindings).
 
 ## Architecture
 
