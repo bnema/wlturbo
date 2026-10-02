@@ -1,10 +1,20 @@
-# WLTurbo - Wayland Client Library for Go
+# WLTurbo
 
-A performance-focused Wayland client runtime for Go, the foundation for protocol bindings and Wayland applications.
+A performance-focused, low-level Wayland client runtime for Go.
 
 ## Overview
 
-WLTurbo is a low-level Wayland client runtime: connection, wire framing, descriptor passing, object lifecycle and the bootstrap registry. Protocol bindings are provided separately (see [Protocol bindings](#protocol-bindings)).
+WLTurbo is the transport layer: connection, wire framing, descriptor passing, object lifecycle and the bootstrap registry. It is not a complete Wayland client. It has no windows, surfaces, seats, input handling or rendering, and it knows no protocol beyond the bootstrap objects. Protocol bindings are provided separately (see [Protocol bindings](#protocol-bindings)).
+
+## Where it fits
+
+```
+Application or toolkit    windows, input, rendering, policy
+└─ Protocol bindings      generated code, one package per protocol
+   └─ WLTurbo             transport and objects  (this module)
+```
+
+Use WLTurbo directly to speak raw Wayland or to write your own bindings or toolkit. Ready-made bindings are available in [go-wayland-bindings](https://github.com/bnema/go-wayland-bindings).
 
 ## Architecture
 
@@ -38,6 +48,8 @@ After `display.Roundtrip()` discovers globals, call `display.Registry().BindNego
 - **Allocation-free numeric paths**: numeric requests sent with `Context.RequestArgs` without object creation or descriptors, and typed numeric events, do not allocate after warm-up. Object creation, received strings and descriptors have separate allocation costs.
 
 ## Quick Start
+
+This opens a connection and dispatches events. Binding globals needs the protocol packages from `go-wayland-bindings`.
 
 ```go
 package main
