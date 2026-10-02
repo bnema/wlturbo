@@ -45,4 +45,4 @@ NOTES.md
 
 # Build artifacts
 dist/
-build/
+build/.worktrees/
